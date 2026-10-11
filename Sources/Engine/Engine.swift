@@ -20,7 +20,7 @@ public final class Engine {
     let wbuf: MTLBuffer
     let x, xn, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope: MTLBuffer
     let xnh, attnh, hh: MTLBuffer
-    let drafts, promptTail: MTLBuffer
+    let drafts, promptRecent: MTLBuffer
     var ngram: MTLBuffer
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
@@ -106,7 +106,7 @@ public final class Engine {
         drafts = buf(64)
         lmhBounds = buf(4 * 2 * Dims.vocab / 32 * 4)
         lmhTau = buf(64)
-        promptTail = buf(64)
+        promptRecent = buf(4 * (4 + 256))   // [count, -, -, -, last <= 256 prompt tokens] for prompt lookup
         ngram = buf(16)
         logits = buf(Dims.vocab * 4)
         rope = buf(maxContext * 32 * 8)
@@ -127,7 +127,7 @@ public final class Engine {
         let rd = MTLResidencySetDescriptor()
         rd.initialCapacity = 32
         if pinMemory, ProcessInfo.processInfo.environment["ILL_NO_RESIDENCY"] == nil, let rs = try? dev.makeResidencySet(descriptor: rd) {
-            for b in [wbuf, x, xn, xnh, attnh, hh, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope, drafts, promptTail, lmhBounds, lmhTau] {
+            for b in [wbuf, x, xn, xnh, attnh, hh, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope, drafts, promptRecent, lmhBounds, lmhTau] {
                 rs.addAllocation(b)
             }
             rs.commit()
@@ -139,7 +139,7 @@ public final class Engine {
         mark("residency")
         let opts = MTLCompileOptions()
         opts.preprocessorMacros = ["FMT": NSNumber(value: model.format.rawValue)]
-        opts.mathMode = .fast
+        opts.mathMode = ProcessInfo.processInfo.environment["ILL_MATH"] == "safe" ? .safe : (ProcessInfo.processInfo.environment["ILL_MATH"] == "relaxed" ? .relaxed : .fast)
         opts.languageVersion = .version4_0
         let tLib0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let lib = try dev.makeLibrary(source: shaderSource, options: opts)
@@ -418,7 +418,7 @@ public final class Engine {
         e.setBuffer(x, offset: 0, index: 6)
         e.setBuffer(drafts, offset: 0, index: 7)
         e.setBuffer(ngram, offset: 0, index: 8)
-        e.setBuffer(promptTail, offset: 0, index: 9)
+        e.setBuffer(promptRecent, offset: 0, index: 9)
         grid(e, 1, 1, 1024)
     }
 
@@ -733,6 +733,10 @@ public final class Engine {
 
         let pt = promptToks.contents().assumingMemoryBound(to: Int32.self)
         for i in 0..<n { pt[i] = tokens[common + i] }
+        let pr = promptRecent.contents().assumingMemoryBound(to: Int32.self)
+        let np = min(tokens.count, 256)
+        pr[0] = Int32(np)
+        for i in 0..<np { pr[4 + i] = tokens[tokens.count - np + i] }
         let ot = outToks.contents().assumingMemoryBound(to: Int32.self)
         for i in 0..<maxNew { ot[i] = -1 }
         let s = state.contents().assumingMemoryBound(to: Int32.self)

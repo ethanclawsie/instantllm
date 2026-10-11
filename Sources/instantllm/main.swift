@@ -158,9 +158,7 @@ case "bench":
     let variant = args.get("variant", engine.format.description)
     if args.flags.contains("ignore-eos") { engine.eos = (-5, -5) }
     engine.chunk = args.int("chunk", engine.chunk)
-    // Forced-length generation past the stop token is not command-shaped text, which is all the
-    // draft table knows, so speculation would mostly pay verify passes for nothing: default it off.
-    engine.specT = args.int("spec", args.flags.contains("ignore-eos") ? 1 : engine.defaultSpecT)
+    engine.specT = args.int("spec", engine.defaultSpecT)
     if engine.specT > 1 {
         if (try? engine.loadDraftTable(path: args.get("draft-table", resolveAsset(nil, env: "INSTANTLLM_DRAFT", name: "ngram.bin")))) == nil { engine.specT = 1 }
     }
@@ -182,14 +180,17 @@ case "bench":
         return (text, t, out.count + (t.stopToken >= 0 ? 1 : 0), t0, t1)
     }
     for p in prompts { _ = request(p) }  // warmup (also caches the system prefix)
-    if let abT = args.options["abba"].flatMap(Int.init) {
-        // Paired comparison inside one process: per prompt run plain, spec, spec, plain (drift cancels).
+    if let ab = args.options["abba"] {
+        // Paired comparison inside one process: per prompt run A, B, B, A (drift cancels).
+        // --abba T compares speculation width T with plain decoding, --abba A,B two widths.
+        let w = ab.split(separator: ",").compactMap { Int($0) }
+        let (aT, abT) = w.count == 2 ? (w[0], w[1]) : (1, w.first ?? 2)
         try? engine.loadDraftTable(path: args.get("draft-table", "models/ill/ngram.bin"))
         var dE: [Double] = [], dT: [Double] = [], plainE: [Double] = [], specE: [Double] = []
         for _ in 0..<reps {
             for p in prompts {
                 var e = [Double](repeating: 0, count: 4), t = [Double](repeating: 0, count: 4)
-                for (i, T) in [1, abT, abT, 1].enumerated() {
+                for (i, T) in [aT, abT, abT, aT].enumerated() {
                     engine.specT = T
                     let res = request(p)
                     e[i] = ms(res.t0, res.t1); t[i] = ms(res.t0, res.t.tFirst)
@@ -200,8 +201,8 @@ case "bench":
         }
         func med(_ a: [Double]) -> Double { let s = a.sorted(); return s[s.count / 2] }
         let mean = { (a: [Double]) in a.reduce(0, +) / Double(a.count) }
-        print(String(format: "ABBA spec %d vs plain: e2e mean %.2f -> %.2f ms (%.1f%%), median paired delta %.2f ms; ttft median delta %.2f ms",
-                     abT, mean(plainE), mean(specE), 100 * (mean(specE) / mean(plainE) - 1), med(dE), med(dT)))
+        print(String(format: "ABBA spec %d vs %d: e2e mean %.2f -> %.2f ms (%.1f%%), median paired delta %.2f ms; ttft median delta %.2f ms",
+                     abT, aT, mean(plainE), mean(specE), 100 * (mean(specE) / mean(plainE) - 1), med(dE), med(dT)))
         exit(0)
     }
     print("engine\tvariant\tmode\tprompt_idx\trep\te2e_ms\tttft_ms\tprefill_tokens\tgen_tokens\tdecode_tok_s\ttext")

@@ -20,6 +20,11 @@ using namespace mpp::tensor_ops;
 #define LMH_ROWS_PER_TG 32
 #define LMH_TGS (VOCAB / LMH_ROWS_PER_TG)
 
+// Decode/verify code is compiled with strict fp semantics: under fast math the compiler may
+// reassociate differently in each T instantiation, and verify passes must reproduce the T = 1
+// numerics bit for bit (speculation never changes the output). Prefill code below switches back.
+#pragma METAL fp math_mode(safe)
+
 struct State {
     int pos;       // position of the first token of the current pass
     int n;         // tokens in the current pass
@@ -55,18 +60,16 @@ inline ulong ng_key(thread const int* ctx, int n) {   // ctx[0..n-1] = the last 
     return h | 1ul;
 }
 
-// Most frequent continuation of the longest known context (orders NG_MAXN..1); -1 if none is confident.
-inline int ng_next(device const NGEntry* tab, thread const int* hist, int len, int minc) {
+// Most frequent continuation of the longest known context (orders NG_MAXN..1); -1 if none is known.
+// Confidence is not checked: a pass costs the same with or without a draft in a slot.
+inline int ng_next(device const NGEntry* tab, thread const int* hist, int len) {
     for (int n = min(NG_MAXN, len); n >= 1; n--) {
         const ulong k = ng_key(hist + len - n, n);
         uint slot = uint(k >> 12) & (NG_SLOTS - 1);
         for (int p = 0; p < 16; p++) {
             const NGEntry e = tab[slot];
             if (e.key == 0) break;
-            if (e.key == k) {
-                if (int(e.count) >= minc && 2 * int(e.count) >= int(e.total)) return e.next;
-                return -1;   // known context, no confident continuation: stop drafting
-            }
+            if (e.key == k) return e.next;
             slot = (slot + 1) & (NG_SLOTS - 1);
         }
     }
@@ -227,7 +230,11 @@ kernel void k_commit(device const float* pval [[buffer(0)]],
 // Speculative commit: one threadgroup of 1024 threads. Rows 0..nver-1 of the pass that just ran were
 // [last token, draft 0, ..., draft nver-2]; their argmaxes g_t come from the lm_head partials
 // [t][LMH_TGS]. Accepts the longest prefix with draft t == g_t, commits g_0..g_m (stopping at EOS),
-// drafts tspec-1 new tokens from the n-gram table and embeds [g_m, drafts...] for the next pass.
+// drafts tspec-1 new tokens and embeds [g_m, drafts...] for the next pass. Each draft comes from the
+// first source with a guess: (1) self-repetition: the most recent earlier occurrence of the longest
+// output suffix of 3..8 tokens, continued; (2) the n-gram table; (3) prompt lookup: the token after
+// the latest longest (1..4 token) match of the output suffix in the prompt.
+#define OB_MAX 256
 kernel void k_commit_spec(device const float* pval [[buffer(0)]],
                           device const int* pidx [[buffer(1)]],
                           device State* st [[buffer(2)]],
@@ -237,7 +244,7 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
                           device float* x [[buffer(6)]],
                           device int* drafts [[buffer(7)]],
                           device const NGEntry* tab [[buffer(8)]],
-                          device const int* prompt_tail [[buffer(9)]],
+                          device const int* prompt [[buffer(9)]],   // [count, -, -, -, last <= 256 prompt tokens]
                           uint tid [[thread_index_in_threadgroup]],
                           uint lane [[thread_index_in_simdgroup]],
                           uint sg [[simdgroup_index_in_threadgroup]]) {
@@ -247,6 +254,8 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
     threadgroup int g[8];
     threadgroup int next_rows[8];
     threadgroup int nrows_s;
+    threadgroup int have_s;
+    threadgroup int ob[OB_MAX + 8];   // recent output tokens, then the drafts of this commit
     const int nv = st->nver;
     for (int t = 0; t < nv; t++) {
         float best = -INFINITY;
@@ -294,23 +303,50 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
             st->done = 1;
             nrows_s = 0;
         } else {
-            // history for drafting: last committed tokens (generated, then prompt tail before them)
-            int hist[NG_MAXN + 8];
-            const int have = st->step;
-            int len = 0;
-            for (int i = NG_MAXN; i >= 1; i--) {
-                const int j = have - i;
-                hist[len++] = j >= 0 ? out_tokens[j] : -1;   // -1 marks the start of the output
-            }
-            const int T = st->tspec;
-            int nd = 0;
+            nrows_s = -1;
+            have_s = st->step;
             next_rows[0] = last;
-            for (; nd < T - 1; nd++) {
-                const int d = ng_next(tab, hist, len, 1);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
+    if (nrows_s < 0) {
+        const int have = have_s;
+        const int w0 = max(0, have - OB_MAX);
+        for (int i = w0 + int(tid); i < have; i += 1024) ob[i - w0] = out_tokens[i];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid == 0) {
+            int L = have - w0;
+            int hist[NG_MAXN + 8];
+            int len = 0;
+            for (int i = NG_MAXN; i >= 1; i--) hist[len++] = have - i >= 0 ? ob[have - i - w0] : -1;  // -1: before the output
+            const int T = st->tspec;
+            const int np = prompt[0];
+            device const int* P = prompt + 4;
+            int nd = 0;
+            while (nd < T - 1) {
+                int d = -1;
+                int bn = 2;
+                for (int j = L - 1; j >= 1 && bn < 8; j--) {
+                    int m = 0;
+                    while (m < 8 && j - 1 - m >= 0 && ob[j - 1 - m] == ob[L - 1 - m]) m++;
+                    if (m > bn) { bn = m; d = ob[j]; }
+                }
+                if (d < 0) d = ng_next(tab, hist, len);
+                if (d < 0) {
+                    int pm = 0;
+                    for (int j = np - 1; j >= 1 && pm < 4; j--) {
+                        int m = 0;
+                        while (m < 4 && m < L && j - 1 - m >= 0 && P[j - 1 - m] == ob[L - 1 - m]) m++;
+                        if (m > pm) { pm = m; d = P[j]; }
+                    }
+                }
                 if (d < 0) break;
                 drafts[nd] = d;
                 next_rows[nd + 1] = d;
+                nd++;
                 hist[len++] = d;
+                ob[L++] = d;
+                if (d == st->eos0 || d == st->eos1) break;
             }
             for (int i = nd; i < T - 1; i++) { drafts[i] = -2; next_rows[i + 1] = 0; }
             st->nver = T;
@@ -951,6 +987,8 @@ INST_LMH(4)
 
 
 #endif
+
+#pragma METAL fp math_mode(fast)
 
 #if FMT == 3
 // ---------------------------------------------------------------------------------------------

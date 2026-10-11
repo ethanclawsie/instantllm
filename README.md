@@ -26,7 +26,7 @@ equally.
 | *(mean)* end to end, natural stop | **18.5 ms** | 46.4 ms | 60.1 ms | 90.2 ms |
 | end to end, whole prompt (no cache) | **21.3 ms** | 44.1 ms | 62.8 ms | 64.9 ms |
 | cold: fresh process per request | **44 ms** | 236 ms | - | 1872 ms |
-| resident daemon + C client (`ill`), spawn to exit | **22 ms** | - | - | - |
+| resident daemon + C client (`ill`), spawn to exit | **20 ms** | - | - | - |
 | weights read per token | 278 MB | 346 MB | 392 MB | 278 MB |
 
 **8-bit**
@@ -55,9 +55,9 @@ For real commands (natural stop, 4-bit), that is 2.3x faster than llama.cpp and 
 mlx-lm, or 2.5x and 4.9x by the mean. For a fixed 32-token generation, where answer length cannot
 differ, it is 1.8x and 1.6x. With a fresh process per request it is 5x and 43x. Exact speculative
 decoding (below) is on for instantllm and never changes the output. The daemon row is the median
-over the 20 prompts with 0 to 3 s of idle time before each request (see "GPU clock" below). It was
-measured with the build before the learned drafter, which is slower than the current one. Raw
-results: `bench/results/*.tsv`; tables: `bench/table.py`.
+over 2 rounds of the 20 prompts with 0, 1 or 3 s of idle time before each request: 19.6 to 20.4 ms
+whatever the gap, with a 90th percentile of 26 to 27 ms (see "GPU clock" below). Raw results:
+`bench/results/*.tsv`; tables: `bench/table.py`.
 
 ### Output quality (agreement with an fp32 reference of the original weights)
 

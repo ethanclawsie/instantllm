@@ -33,6 +33,10 @@ struct State {
     int tspec;     // rows per speculative pass (1 = no speculation)
     int pad0;
     int pad1;
+    int tlmh;      // rows of the lm_head pass in flight (for the threshold kernel)
+    int pad2;
+    int pad3;
+    int pad4;
 };
 
 // n-gram draft table: open addressing, NG_SLOTS entries of {key, next token, count, total}.
@@ -886,6 +890,153 @@ INST_T(1, 8, "")
 INST_T(2, 8, "_2")
 INST_T(3, 8, "_3")
 INST_T(4, 8, "_4")
+
+// ---------------------------------------------------------------------------------------------
+// Two-stage lm_head. Stage 1 scores every vocabulary row with a 2-bit sketch of its q4 codes
+// (the high bits: w ~ s (4 hi + 1.5) + b) and a per-row uncertainty sigma^2 = 1.25 sum_g s_g^2 |x_g|^2
+// (the dropped low bits are ~uniform in 0..3); each 32-row group records the max of A - K sigma and
+// A + K sigma. A tiny kernel reduces the global threshold tau = max(A - K sigma); stage 2 recomputes
+// exact q4 logits only in groups whose upper bound reaches tau (a handful), so the argmax equals the
+// full lm_head's unless a residual exceeds K = 10 sigma.
+
+template<int T>
+kernel void k_lmh_sketch_T(device const uchar* HI [[buffer(0)]], device const half2* ESB [[buffer(1)]],
+                           device const float* wnorm [[buffer(2)]], device const float* x [[buffer(3)]],
+                           device float* bounds [[buffer(4)]], device const State* st [[buffer(5)]],
+                           constant float& LMH_K [[buffer(6)]],
+                           uint tg [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                           ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    threadgroup float tlb[T][4], tub[T][4];
+    // inputs: lane's 32 columns, as 2 uints x 4 masks of half4 = (x[16u+m], x[16u+4+m], x[16u+8+m], x[16u+12+m]) / 4^m
+    half4 xm[T][2][4];
+    float X[T], XX[T];
+    device const float* xr = x + (st->n - T) * H;
+    for (int t = 0; t < T; t++) {
+        uint xh[16];
+        q4_chunk_norm(xr + t * H, wnorm, lane, xh, X[t]);
+        float xf[32];
+        for (int i = 0; i < 16; i++) { const float2 f2 = float2(as_type<half2>(xh[i])); xf[2 * i] = f2.x; xf[2 * i + 1] = f2.y; }
+        float xx = 0.f;
+        for (int i = 0; i < 32; i++) xx += xf[i] * xf[i];
+        XX[t] = xx;
+        for (int u = 0; u < 2; u++)
+            for (int m = 0; m < 4; m++) {
+                const float sc = 1.f / float(1 << (2 * m));
+                xm[t][u][m] = half4(float4(xf[16 * u + m], xf[16 * u + 4 + m], xf[16 * u + 8 + m], xf[16 * u + 12 + m]) * sc);
+            }
+    }
+    const uint r0 = tg * 32 + sg * 8;
+    float va[T][8], vv[T][8];
+    if (lane < 28) {
+        uint2 hv[8];
+        float2 sb[8];
+        for (int r = 0; r < 8; r++) {
+            hv[r] = *((device const uint2*)(HI + (ulong)(r0 + r) * (H / 4) + lane * 8));
+            sb[r] = float2(ESB[(r0 + r) * (H / 64) + (lane >> 1)]);
+        }
+        for (int r = 0; r < 8; r++) {
+            for (int t = 0; t < T; t++) {
+                half acc = 0.h;
+                for (int u = 0; u < 2; u++) {
+                    const uint v = hv[r][u];
+                    acc += dot(half4(as_type<uchar4>(v & 0x03030303u)), xm[t][u][0]);
+                    acc += dot(half4(as_type<uchar4>(v & 0x0C0C0C0Cu)), xm[t][u][1]);
+                    acc += dot(half4(as_type<uchar4>(v & 0x30303030u)), xm[t][u][2]);
+                    acc += dot(half4(as_type<uchar4>(v & 0xC0C0C0C0u)), xm[t][u][3]);
+                }
+                va[t][r] = sb[r].x * (4.f * float(acc) + 1.5f * X[t]) + sb[r].y * X[t];
+                vv[t][r] = sb[r].x * sb[r].x * XX[t];
+            }
+        }
+    } else {
+        for (int t = 0; t < T; t++) for (int r = 0; r < 8; r++) { va[t][r] = 0.f; vv[t][r] = 0.f; }
+    }
+    for (int t = 0; t < T; t++) {
+        const float a = reduce8(va[t], lane);
+        const float sigma = sqrt(1.25f * reduce8(vv[t], lane));
+        const float lb = simd_max(a - LMH_K * sigma), ub = simd_max(a + LMH_K * sigma);
+        if (lane == 0) { tlb[t][sg] = lb; tub[t][sg] = ub; }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sg == 0 && lane < T) {
+        const int t = lane;
+        bounds[(2 * t) * LMH_TGS + tg] = max(max(tlb[t][0], tlb[t][1]), max(tlb[t][2], tlb[t][3]));
+        bounds[(2 * t + 1) * LMH_TGS + tg] = max(max(tub[t][0], tub[t][1]), max(tub[t][2], tub[t][3]));
+    }
+}
+
+// tau[t] = max over groups of the lower bound. One threadgroup of 1024 threads.
+kernel void k_lmh_tau(device const float* bounds [[buffer(0)]], device float* tau [[buffer(1)]],
+                      device const State* st [[buffer(2)]], constant int& T [[buffer(3)]],
+                      uint tid [[thread_index_in_threadgroup]], ushort lane [[thread_index_in_simdgroup]],
+                      ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    threadgroup float red[32];
+    for (int t = 0; t < T; t++) {
+        float m = -INFINITY;
+        for (int i = tid; i < LMH_TGS; i += 1024) m = max(m, bounds[(2 * t) * LMH_TGS + i]);
+        m = simd_max(m);
+        if (lane == 0) red[sg] = m;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (sg == 0) {
+            m = simd_max(red[lane]);
+            if (lane == 0) tau[t] = m;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+}
+
+// Exact q4 logits for the candidate groups only; other groups report -inf.
+template<int T>
+kernel void k_lmh_exact_T(device const uchar* E [[buffer(0)]], device const half2* ESB [[buffer(1)]],
+                          device const float* wnorm [[buffer(2)]], device const float* x [[buffer(3)]],
+                          device float* pval [[buffer(4)]], device int* pidx [[buffer(5)]],
+                          device const State* st [[buffer(6)]], device const float* bounds [[buffer(7)]],
+                          device const float* tau [[buffer(8)]],
+                          uint tg [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                          ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    bool any = false;
+    bool cand[T];
+    for (int t = 0; t < T; t++) { cand[t] = bounds[(2 * t + 1) * LMH_TGS + tg] >= tau[t]; any = any || cand[t]; }
+    if (!any) {
+        if (sg == 0 && lane < T) { pval[lane * LMH_TGS + tg] = -INFINITY; pidx[lane * LMH_TGS + tg] = 0x7fffffff; }
+        return;
+    }
+    threadgroup float bv[T][4];
+    threadgroup int bix[T][4];
+    uint xh[T][16];
+    float X[T], v[T][8];
+    device const float* xr = x + (st->n - T) * H;
+    for (int t = 0; t < T; t++) q4_chunk_norm(xr + t * H, wnorm, lane, xh[t], X[t]);
+    const uint r0 = tg * 32 + sg * 8;
+    q4_rows<T, 8>(E, ESB, r0, xh, X, lane, v);
+    for (int t = 0; t < T; t++) {
+        const float y = reduce8(v[t], lane);
+        const int row = int(r0) + (lane >> 2);
+        const float m = simd_max(y);
+        const int idx = simd_min(y == m ? row : 0x7fffffff);
+        if (lane == 0) { bv[t][sg] = m; bix[t][sg] = idx; }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sg == 0 && lane < T) {
+        const int t = lane;
+        float best = bv[t][0];
+        int bi = bix[t][0];
+        for (int s2 = 1; s2 < 4; ++s2) if (bv[t][s2] > best) { best = bv[t][s2]; bi = bix[t][s2]; }
+        pval[t * LMH_TGS + tg] = cand[t] ? best : -INFINITY;
+        pidx[t * LMH_TGS + tg] = cand[t] ? bi : 0x7fffffff;
+    }
+}
+
+#define INST_LMH(T) \
+template [[host_name("k_lmh_sketch_" #T)]] kernel void k_lmh_sketch_T<T>(device const uchar*, device const half2*, device const float*, device const float*, device float*, device const State*, constant float&, uint, ushort, ushort); \
+template [[host_name("k_lmh_exact_" #T)]] kernel void k_lmh_exact_T<T>(device const uchar*, device const half2*, device const float*, device const float*, device float*, device int*, device const State*, device const float*, device const float*, uint, ushort, ushort);
+INST_LMH(1)
+INST_LMH(2)
+INST_LMH(3)
+INST_LMH(4)
 
 
 

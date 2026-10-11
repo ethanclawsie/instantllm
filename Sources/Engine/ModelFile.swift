@@ -49,7 +49,9 @@ public enum TensorID {
     public static let embedSB = 1
     public static let finalNorm = 2
     public static let perLayer = 12
-    public static let count = 3 + Dims.layers * perLayer
+    /// 2-bit sketch of the q4 embedding (high bits of every code) for the two-stage lm_head.
+    public static let embedHi = 3 + Dims.layers * perLayer
+    public static let count = embedHi + 1
 
     public static let attnNorm = 0, wqkv = 1, wqkvSB = 2, bqkv = 3, wo = 4, woSB = 5
     public static let mlpNorm = 6, wgu = 7, wguSB = 8, wd = 9, wdSB = 10

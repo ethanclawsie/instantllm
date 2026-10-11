@@ -19,7 +19,7 @@ struct Args {
                 let key = String(a.dropFirst(2))
                 if let eq = key.firstIndex(of: "=") {
                     options[String(key[..<eq])] = String(key[key.index(after: eq)...])
-                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep"].contains(key) {
+                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep", "sketch"].contains(key) {
                     flags.insert(key)
                 } else if let v = it.next() {
                     options[key] = v
@@ -51,7 +51,7 @@ switch argv[1] {
 case "convert":
     guard let fmt = WeightFormat(name: args.get("format", "q4")) else { fail("bad --format") }
     do {
-        try Converter.convert(hfDir: args.get("hf", "models/hf"), output: args.get("out", "model.ill"), format: fmt, quantFile: args.options["quant"])
+        try Converter.convert(hfDir: args.get("hf", "models/hf"), output: args.get("out", "model.ill"), format: fmt, quantFile: args.options["quant"], sketch: args.flags.contains("sketch"))
     } catch { fail("convert failed: \(error)") }
 
 case "ids":
@@ -209,6 +209,7 @@ case "bench":
         for r in 0..<reps {
             let res = request(p)
             totPasses += res.t.passes; totAcc += res.t.accepted; totGen += res.gen
+            if args.flags.contains("verbose") { FileHandle.standardError.write("p\(i) candidates(last pass) \(engine.lastSketchCandidates())\n".data(using: .utf8)!) }
             let ttftMs = ms(res.t0, res.t.tFirst)
             let decTs = res.gen > 1 ? Double(res.gen - 1) / (ms(res.t.tFirst, res.t.tEnd) / 1e3) : Double.nan
             e2e.append(ms(res.t0, res.t1)); ttft.append(ttftMs); if res.gen > 1 { dec.append(decTs) }

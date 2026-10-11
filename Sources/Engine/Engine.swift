@@ -27,6 +27,14 @@ public final class Engine {
     var pGemmQKV, pGemmO, pGemmGU, pGemmDown: MTLComputePipelineState?
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
     var pCommitSpec: MTLComputePipelineState?
+    var pLmhSketch: [Int: MTLComputePipelineState] = [:], pLmhExact: [Int: MTLComputePipelineState] = [:]
+    var pLmhTau: MTLComputePipelineState?
+    let lmhBounds, lmhTau: MTLBuffer
+    /// Two-stage lm_head (2-bit sketch + exact recompute of candidate groups); needs the sketch plane.
+    /// Off by default: ~4% faster decode, but its argmax equals the full lm_head's only with
+    /// overwhelming probability (a residual beyond K sigma would flip a near-tie), not by construction.
+    public var useSketchHead = ProcessInfo.processInfo.environment["ILL_SKETCH"] != nil
+    public var sketchK: Float = Float(ProcessInfo.processInfo.environment["ILL_SKETCH_K"] ?? "") ?? 6
     var pSpec: [Int: [MTLComputePipelineState]] = [:]   // T -> [attn_in, o_proj, mlp_in, mlp_out, lm_head]
     var pSpecVar: [String: [MTLComputePipelineState]] = [:]   // exploration variants ("2r4", "3r8")
     static func specRows(_ T: Int) -> Int { 8 }
@@ -95,6 +103,8 @@ public final class Engine {
         pval = buf(4 * Dims.vocab / 32 * 4)
         pidx = buf(4 * Dims.vocab / 32 * 4)
         drafts = buf(64)
+        lmhBounds = buf(4 * 2 * Dims.vocab / 32 * 4)
+        lmhTau = buf(64)
         promptTail = buf(64)
         ngram = buf(16)
         logits = buf(Dims.vocab * 4)
@@ -116,7 +126,7 @@ public final class Engine {
         let rd = MTLResidencySetDescriptor()
         rd.initialCapacity = 32
         if pinMemory, ProcessInfo.processInfo.environment["ILL_NO_RESIDENCY"] == nil, let rs = try? dev.makeResidencySet(descriptor: rd) {
-            for b in [wbuf, x, xn, xnh, attnh, hh, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope, drafts, promptTail] {
+            for b in [wbuf, x, xn, xnh, attnh, hh, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope, drafts, promptTail, lmhBounds, lmhTau] {
                 rs.addAllocation(b)
             }
             rs.commit()
@@ -156,6 +166,12 @@ public final class Engine {
         pRmsRowsH = try pipe("k_rmsnorm_rows_h")
         pF32ToH = try pipe("k_f32_to_h")
         pNoop = try pipe("k_noop")
+        if model.format == .q4 && model.size(TensorID.embedHi) > 0 {
+            for t in 1...4 { pLmhSketch[t] = try pipe("k_lmh_sketch_\(t)"); pLmhExact[t] = try pipe("k_lmh_exact_\(t)") }
+            pLmhTau = try pipe("k_lmh_tau")
+        } else {
+            useSketchHead = false
+        }
         if model.format == .q4 {
             pCommitSpec = try pipe("k_commit_spec")
             for t in 2...4 { pSpec[t] = try ["k_attn_in_", "k_o_proj_", "k_mlp_in_", "k_mlp_out_", "k_lm_head_"].map { try pipe($0 + "\(t)") } }
@@ -399,7 +415,28 @@ public final class Engine {
                    out: x, kvOff: kvOff, rowsPerTG: 32, rows: Dims.hidden, n: n)
     }
 
+    /// Sketch + threshold + exact-candidates lm_head over the last T rows of x (writes the same partials).
+    private func encodeSketchHead(_ e: MTLComputeCommandEncoder, T: Int) {
+        e.setComputePipelineState(pLmhSketch[T]!)
+        w(e, TensorID.embedHi, 0); w(e, TensorID.embedSB, 1); w(e, TensorID.finalNorm, 2)
+        e.setBuffer(x, offset: 0, index: 3); e.setBuffer(lmhBounds, offset: 0, index: 4); e.setBuffer(state, offset: 0, index: 5)
+        var k = sketchK
+        e.setBytes(&k, length: 4, index: 6)
+        grid(e, Dims.vocab / 32, 1, 128)
+        e.setComputePipelineState(pLmhTau!)
+        e.setBuffer(lmhBounds, offset: 0, index: 0); e.setBuffer(lmhTau, offset: 0, index: 1); e.setBuffer(state, offset: 0, index: 2)
+        var t32 = Int32(T)
+        e.setBytes(&t32, length: 4, index: 3)
+        grid(e, 1, 1, 1024)
+        e.setComputePipelineState(pLmhExact[T]!)
+        w(e, TensorID.embed, 0); w(e, TensorID.embedSB, 1); w(e, TensorID.finalNorm, 2)
+        e.setBuffer(x, offset: 0, index: 3); e.setBuffer(pval, offset: 0, index: 4); e.setBuffer(pidx, offset: 0, index: 5)
+        e.setBuffer(state, offset: 0, index: 6); e.setBuffer(lmhBounds, offset: 0, index: 7); e.setBuffer(lmhTau, offset: 0, index: 8)
+        grid(e, Dims.vocab / 32, 1, 128)
+    }
+
     private func encodeLMHead(_ e: MTLComputeCommandEncoder, writeLogits: Bool) {
+        if useSketchHead && !writeLogits { encodeSketchHead(e, T: 1); return }
         e.setComputePipelineState(pLMHead)
         w(e, TensorID.embed, 0)
         w(e, TensorID.embedSB, 1)
@@ -473,13 +510,17 @@ public final class Engine {
             e.setBuffer(hbuf, offset: 0, index: 2); e.setBuffer(x, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
             grid(e, Dims.hidden / (2 * R), 1, 64)
         }
-        e.setComputePipelineState(p[4])
-        w(e, TensorID.embed, 0); w(e, TensorID.embedSB, 1); w(e, TensorID.finalNorm, 2)
-        e.setBuffer(x, offset: 0, index: 3); e.setBuffer(pval, offset: 0, index: 4); e.setBuffer(pidx, offset: 0, index: 5)
-        e.setBuffer(state, offset: 0, index: 6); e.setBuffer(logits, offset: 0, index: 7)
-        var wl: Int32 = 0
-        e.setBytes(&wl, length: 4, index: 8)
-        grid(e, Dims.vocab / 32, 1, 32 * (32 / R))
+        if useSketchHead {
+            encodeSketchHead(e, T: T)
+        } else {
+            e.setComputePipelineState(p[4])
+            w(e, TensorID.embed, 0); w(e, TensorID.embedSB, 1); w(e, TensorID.finalNorm, 2)
+            e.setBuffer(x, offset: 0, index: 3); e.setBuffer(pval, offset: 0, index: 4); e.setBuffer(pidx, offset: 0, index: 5)
+            e.setBuffer(state, offset: 0, index: 6); e.setBuffer(logits, offset: 0, index: 7)
+            var wl: Int32 = 0
+            e.setBytes(&wl, length: 4, index: 8)
+            grid(e, Dims.vocab / 32, 1, 32 * (32 / R))
+        }
         encodeCommitSpec(e)
     }
 
@@ -586,6 +627,27 @@ public final class Engine {
         r.append(("  24x mlp_out (decode)", gpuTime(n: 1, pos: pos + n) { e in for l in 0..<Dims.layers { self.encodeLayerPart(e, l, part: 4) } }))
         r.append(("  lm_head (decode)", gpuTime(n: 1, pos: pos + n) { e in self.encodeLMHead(e, writeLogits: false) }))
         r.append(("  commit (decode)", gpuTime(n: 1, pos: pos + n) { e in self.encodeCommit(e) }))
+        if pLmhTau != nil {
+            r.append(("  lm_head FULL T=1", gpuTime(n: 1, pos: pos + n) { e in
+                let saved = self.useSketchHead; self.useSketchHead = false; self.encodeLMHead(e, writeLogits: false); self.useSketchHead = saved }))
+            r.append(("  sketch stage 1 T=1", gpuTime(n: 1, pos: pos + n) { e in
+                e.setComputePipelineState(self.pLmhSketch[1]!)
+                self.w(e, TensorID.embedHi, 0); self.w(e, TensorID.embedSB, 1); self.w(e, TensorID.finalNorm, 2)
+                e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.lmhBounds, offset: 0, index: 4); e.setBuffer(self.state, offset: 0, index: 5)
+                var k = self.sketchK; e.setBytes(&k, length: 4, index: 6)
+                self.grid(e, Dims.vocab / 32, 1, 128) }))
+            r.append(("  sketch tau", gpuTime(n: 1, pos: pos + n) { e in
+                e.setComputePipelineState(self.pLmhTau!)
+                e.setBuffer(self.lmhBounds, offset: 0, index: 0); e.setBuffer(self.lmhTau, offset: 0, index: 1); e.setBuffer(self.state, offset: 0, index: 2)
+                var t32: Int32 = 1; e.setBytes(&t32, length: 4, index: 3)
+                self.grid(e, 1, 1, 1024) }))
+            r.append(("  sketch stage 2 T=1", gpuTime(n: 1, pos: pos + n) { e in
+                e.setComputePipelineState(self.pLmhExact[1]!)
+                self.w(e, TensorID.embed, 0); self.w(e, TensorID.embedSB, 1); self.w(e, TensorID.finalNorm, 2)
+                e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.pval, offset: 0, index: 4); e.setBuffer(self.pidx, offset: 0, index: 5)
+                e.setBuffer(self.state, offset: 0, index: 6); e.setBuffer(self.lmhBounds, offset: 0, index: 7); e.setBuffer(self.lmhTau, offset: 0, index: 8)
+                self.grid(e, Dims.vocab / 32, 1, 128) }))
+        }
         if pCommitSpec != nil {
             let s0 = state.contents().assumingMemoryBound(to: Int32.self)
             r.append(("  commit_spec T=2 (decode)", gpuTime(n: 1, pos: pos + n) { e in s0[8] = 2; s0[9] = 2; self.encodeCommitSpec(e) }))
@@ -679,6 +741,16 @@ public final class Engine {
             cachedTokens = toks
             return toks
         }
+    }
+
+    /// Candidate groups of the last sketch-head pass (row 0): groups whose upper bound reached tau.
+    public func lastSketchCandidates() -> Int {
+        waitIdle()
+        let b = lmhBounds.contents().assumingMemoryBound(to: Float.self)
+        let tau = lmhTau.contents().assumingMemoryBound(to: Float.self)[0]
+        var c = 0
+        for i in 0..<(Dims.vocab / 32) where b[Dims.vocab / 32 + i] >= tau { c += 1 }
+        return c
     }
 
     /// Forget cached keys/values beyond the first `n` tokens (n = 0 clears the cache).

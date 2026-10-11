@@ -89,7 +89,7 @@ struct Q4Mat {
 
 public enum Converter {
     public static func convert(hfDir: String, output: String, format: WeightFormat, quantFile: String? = nil,
-                               log: (String) -> Void = { print($0) }) throws {
+                               sketch: Bool = false, log: (String) -> Void = { print($0) }) throws {
         let hf = try SafeTensors(path: hfDir + "/model.safetensors")
         let qf = try quantFile.map { try SafeTensors(path: $0) }
         if qf != nil && format != .q4 && format != .q4a { throw EngineError("--quant files hold q4 codes; use --format q4") }
@@ -137,7 +137,18 @@ public enum Converter {
         }
         let t0 = Date()
         if format == .q4 {
-            emitQ4(TensorID.embed, TensorID.embedSB, try q4("model.embed_tokens.weight"))
+            let e = try q4("model.embed_tokens.weight")
+            emitQ4(TensorID.embed, TensorID.embedSB, e)
+            if sketch {
+            // byte j of a row = high 2 bits of codes 4j..4j+3 (code 4j in bits 0-1)
+            var hi = [UInt8](repeating: 0, count: e.rows * e.cols / 4)
+            for i in 0..<hi.count {
+                let b0 = e.packed[2 * i], b1 = e.packed[2 * i + 1]
+                let c = [b0 & 0xF, b0 >> 4, b1 & 0xF, b1 >> 4]
+                hi[i] = (c[0] >> 2) | ((c[1] >> 2) << 2) | ((c[2] >> 2) << 4) | ((c[3] >> 2) << 6)
+            }
+            w.add(TensorID.embedHi, hi.withUnsafeBufferPointer { Data(buffer: $0) })
+            }
         } else {
             emitF16(TensorID.embed, TensorID.embedSB, try st.floats("model.embed_tokens.weight").data)
         }

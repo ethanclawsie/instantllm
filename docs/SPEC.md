@@ -21,12 +21,12 @@ single-machine on purpose: every kernel may hard-code the model's shapes.
 
 ## GPU timing etiquette (important)
 
-The user is working on this Mac. Several agents may run at once.
+Several agents may run at once on this one GPU (the user is away from the Mac).
 - Wrap **every** GPU timing run in the shared lock so only one runs at a time:
   `lockf -k /tmp/instantllm-gpu.lock <command...>`
 - Keep each timed run short (well under a minute). Report min and median of repeated runs.
-- Do **not** run the full competitor benchmark protocol; smoke tests (1-2 prompts) only. The formal
-  head-to-head runs later when the user is away from the machine.
+- Agents: smoke tests (1-2 prompts) only for the competitor protocol; the formal head-to-head is
+  run by the lead with nothing else on the GPU.
 
 ## Model facts (Qwen2ForCausalLM)
 

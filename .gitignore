@@ -1,5 +1,6 @@
 .build/
-models/
+models/*
+!models/fetch.sh
 scratch/
 *.ill
 bench/competitors/*/.venv/

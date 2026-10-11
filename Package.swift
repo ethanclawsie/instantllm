@@ -11,7 +11,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "Tokenizer", swiftSettings: release),
-        .target(name: "Engine", swiftSettings: release),
+        .target(name: "CShim"),
+        .target(name: "Engine", dependencies: ["CShim"], swiftSettings: release),
         .executableTarget(name: "instantllm", dependencies: ["Engine", "Tokenizer"], swiftSettings: release),
         .executableTarget(name: "tokcheck", dependencies: ["Tokenizer"], swiftSettings: release),
     ],

@@ -19,7 +19,7 @@ struct Args {
                 let key = String(a.dropFirst(2))
                 if let eq = key.firstIndex(of: "=") {
                     options[String(key[..<eq])] = String(key[key.index(after: eq)...])
-                } else if ["logits-only", "quiet", "verbose", "stats"].contains(key) {
+                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap"].contains(key) {
                     flags.insert(key)
                 } else if let v = it.next() {
                     options[key] = v
@@ -98,8 +98,8 @@ case "idsbench":
                 e2e.append(ms(t.tStart, t.tEnd)); ttft.append(ms(t.tStart, t.tFirst))
                 if out.count > 1 { dec.append(Double(out.count) / (ms(t.tFirst, t.tEnd) / 1e3)) }
                 if args.flags.contains("verbose") {
-                    print(String(format: "%2d prefill %3d ttft %6.2f e2e %7.2f gen %2d  %@", i, t.prefillTokens,
-                                 ms(t.tStart, t.tFirst), ms(t.tStart, t.tEnd), out.count, out.map(String.init).joined(separator: ",")))
+                    print(String(format: "%2d prefill %3d commit %5.2f ttft %6.2f e2e %7.2f gen %2d  %@", i, t.prefillTokens,
+                                 ms(t.tStart, t.tCommit), ms(t.tStart, t.tFirst), ms(t.tStart, t.tEnd), out.count, out.map(String.init).joined(separator: ",")))
                 }
             }
         }
@@ -137,6 +137,106 @@ case "golden":
         i += 1
     }
     print("wrote \(i) prompts to \(odir)")
+
+case "bench":
+    // The competitor protocol (docs/SPEC.md, bench/competitors/*): prompt string -> final text.
+    // TSV rows on stdout in the shared schema; a summary on stderr.
+    let modelPath = args.get("model", "models/ill/qwen-q4.ill")
+    let mode = args.get("mode", "prefix")
+    let reps = args.int("reps", 3)
+    let maxNew = args.int("n-predict", 64)
+    let system = (try? String(contentsOfFile: args.get("system", "bench/system.txt"), encoding: .utf8)) ?? ""
+    let prompts = ((try? String(contentsOfFile: args.get("prompts", "bench/prompts.txt"), encoding: .utf8)) ?? "")
+        .split(separator: "\n").map(String.init)
+    let tok: Tokenizer
+    let engine: Engine
+    do {
+        tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
+        engine = try Engine(modelPath: modelPath)
+    } catch { fail("\(error)") }
+    let variant = args.get("variant", engine.format.description)
+    let prefixLen = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n").count
+    func esc(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\t", with: "\\t")
+            .replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r")
+    }
+    func request(_ prompt: String) -> (text: String, t: Engine.Timing, gen: Int, t0: UInt64, t1: UInt64) {
+        if mode == "full" { engine.truncateCache(0) } else { engine.truncateCache(prefixLen) }
+        let t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        let ids = tok.encodeChat(system: system, user: prompt)
+        let out = engine.generate(ids, maxNew: maxNew)
+        let text = tok.decode(out)
+        let t1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        let t = engine.lastTiming
+        return (text, t, out.count + (t.stopToken >= 0 ? 1 : 0), t0, t1)
+    }
+    for p in prompts { _ = request(p) }  // warmup (also caches the system prefix)
+    print("engine\tvariant\tmode\tprompt_idx\trep\te2e_ms\tttft_ms\tprefill_tokens\tgen_tokens\tdecode_tok_s\ttext")
+    var e2e: [Double] = [], ttft: [Double] = [], dec: [Double] = []
+    for (i, p) in prompts.enumerated() {
+        for r in 0..<reps {
+            let res = request(p)
+            let ttftMs = ms(res.t0, res.t.tFirst)
+            let decTs = res.gen > 1 ? Double(res.gen - 1) / (ms(res.t.tFirst, res.t.tEnd) / 1e3) : Double.nan
+            e2e.append(ms(res.t0, res.t1)); ttft.append(ttftMs); if res.gen > 1 { dec.append(decTs) }
+            print("instantllm\t\(variant)\t\(mode)\t\(i)\t\(r)\t" + String(format: "%.3f\t%.3f", ms(res.t0, res.t1), ttftMs)
+                  + "\t\(res.t.prefillTokens)\t\(res.gen)\t" + String(format: "%.1f", decTs) + "\t" + esc(res.text))
+        }
+    }
+    func med(_ a: [Double]) -> Double { let s = a.sorted(); return s.isEmpty ? .nan : s[s.count / 2] }
+    FileHandle.standardError.write(String(format: "instantllm %@ %@: median e2e %.2f ms, ttft %.2f ms, decode %.1f tok/s\n",
+                                          variant, mode, med(e2e), med(ttft), med(dec)).data(using: .utf8)!)
+
+case "run":
+    // One-shot: tokenize, generate, stream the command to stdout.
+    let system = args.options["system"] ?? ((try? String(contentsOfFile: args.get("system-file", "bench/system.txt"), encoding: .utf8)) ?? "")
+    let prompt = args.positional.joined(separator: " ")
+    let tok: Tokenizer
+    let engine: Engine
+    do {
+        tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
+        engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"))
+    } catch { fail("\(error)") }
+    let ids = tok.encodeChat(system: system, user: prompt)
+    let out = FileHandle.standardOutput
+    engine.generate(ids, maxNew: args.int("n-predict", 64)) { t in
+        let b = tok.tokenBytes(t)
+        if let base = b.baseAddress { out.write(Data(bytes: base, count: b.count)) }
+        return true
+    }
+    out.write("\n".data(using: .utf8)!)
+
+case "tokenize":
+    do {
+        if let json = args.options["compile"] {
+            try Tokenizer.compile(tokenizerJSON: json, output: args.get("out", "models/ill/qwen.tkn"))
+            print("compiled tokenizer")
+        }
+    } catch { fail("\(error)") }
+
+case "idletest":
+    // Latency of a request after the process sat idle for a while (GPU power / residency effects).
+    let tok: Tokenizer
+    let engine: Engine
+    do {
+        tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
+        engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"))
+    } catch { fail("\(error)") }
+    let system = (try? String(contentsOfFile: "bench/system.txt", encoding: .utf8)) ?? ""
+    let ids = tok.encodeChat(system: system, user: "kill all processes named node")
+    _ = engine.generate(ids, maxNew: 8)
+    for idle in [0.0, 0.5, 1, 2, 3, 5, 10] {
+        usleep(useconds_t(idle * 1e6))
+        if args.flags.contains("wake") { engine.wake(); usleep(UInt32(args.int("wake-us", 2000))) }
+        let t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        engine.truncateCache(0)
+        let out = engine.generate(ids, maxNew: 8)
+        let t = engine.lastTiming
+        print(String(format: "idle %4.1f s: ttft %7.2f ms  e2e %7.2f ms  (%d tokens)", idle, ms(t0, t.tFirst), ms(t0, t.tEnd), out.count))
+    }
+
+case "serve":
+    serve(args: args)
 
 case "profile":
     let engine: Engine

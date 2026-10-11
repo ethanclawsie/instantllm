@@ -22,17 +22,19 @@ public final class Engine {
     let xnh, attnh, hh: MTLBuffer
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
     let pRmsRows, pGemmQKV, pGemmO, pGemmGU, pGemmDown: MTLComputePipelineState
-    let pRmsRowsH, pF32ToH: MTLComputePipelineState
+    let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
     public var useGemm2 = true
     /// Prompts of at least this many new tokens use the GEMM prefill path.
     public var gemmThreshold = 2
     var inflight: [MTLCommandBuffer] = []
+    var residency: MTLResidencySet?
 
     /// Tokens whose keys/values are valid in the cache at positions 0..<count.
     public private(set) var cachedTokens: [Int32] = []
 
-    public init(modelPath: String, maxContext: Int = 2048, maxPass: Int = 512, maxSteps: Int = 4096) throws {
+    public init(modelPath: String, maxContext: Int = 2048, maxPass: Int = 512, maxSteps: Int = 4096,
+                copyWeights: Bool = false) throws {
         guard let dev = MTLCreateSystemDefaultDevice() else { throw EngineError("no Metal device") }
         device = dev
         model = try ModelFile(path: modelPath)
@@ -42,10 +44,18 @@ public final class Engine {
         self.maxSteps = maxSteps
         queue = dev.makeCommandQueue()!
 
-        guard let wb = dev.makeBuffer(bytesNoCopy: model.base, length: model.length,
-                                      options: [.storageModeShared, .hazardTrackingModeUntracked], deallocator: nil)
-        else { throw EngineError("cannot wrap model weights in a Metal buffer") }
-        wbuf = wb
+        if copyWeights {
+            // Anonymous (not file-backed) copy: survives long idle periods without re-faulting.
+            guard let wb = dev.makeBuffer(bytes: model.base, length: model.length,
+                                          options: [.storageModeShared, .hazardTrackingModeUntracked])
+            else { throw EngineError("cannot allocate the weight buffer") }
+            wbuf = wb
+        } else {
+            guard let wb = dev.makeBuffer(bytesNoCopy: model.base, length: model.length,
+                                          options: [.storageModeShared, .hazardTrackingModeUntracked], deallocator: nil)
+            else { throw EngineError("cannot wrap model weights in a Metal buffer") }
+            wbuf = wb
+        }
 
         func buf(_ bytes: Int) -> MTLBuffer { dev.makeBuffer(length: max(bytes, 16), options: .storageModeShared)! }
         let H = Dims.hidden
@@ -77,6 +87,20 @@ public final class Engine {
             }
         }
 
+        // Keep every allocation resident: without this, an idle process loses its GPU mappings
+        // and the next token page-faults the weights back in (tens of ms per token).
+        let rd = MTLResidencySetDescriptor()
+        rd.initialCapacity = 32
+        if let rs = try? dev.makeResidencySet(descriptor: rd) {
+            for b in [wbuf, x, xn, xnh, attnh, hh, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope] {
+                rs.addAllocation(b)
+            }
+            rs.commit()
+            rs.requestResidency()
+            queue.addResidencySet(rs)
+            residency = rs
+        }
+
         let opts = MTLCompileOptions()
         opts.preprocessorMacros = ["FMT": NSNumber(value: model.format.rawValue)]
         opts.mathMode = .fast
@@ -100,6 +124,7 @@ public final class Engine {
         pGemmDown = try pipe("k_gemm_down")
         pRmsRowsH = try pipe("k_rmsnorm_rows_h")
         pF32ToH = try pipe("k_f32_to_h")
+        pNoop = try pipe("k_noop")
         for tf in 1...4 {
             pG2.append(try ["qkv", "o", "gu", "down"].map { try pipe("k_g2_\($0)_\(tf)") })
         }
@@ -372,9 +397,25 @@ public final class Engine {
         public var tFirst: UInt64 = 0
         public var tEnd: UInt64 = 0
         public var stopToken: Int32 = -1
+        public var tCommit: UInt64 = 0
     }
 
     public private(set) var lastTiming = Timing()
+
+    /// Submits a trivial dispatch so the GPU is awake (and clocked up) by the time real work arrives.
+    public func wake() {
+        let (cb, e) = newEncoder()
+        e.setComputePipelineState(pNoop)
+        e.setBuffer(pval, offset: 0, index: 0)
+        grid(e, 1, 1, 32)
+        e.endEncoding()
+        cb.commit()
+    }
+
+    /// Forget cached keys/values beyond the first `n` tokens (n = 0 clears the cache).
+    public func truncateCache(_ n: Int) {
+        if cachedTokens.count > n { cachedTokens.removeLast(cachedTokens.count - n) }
+    }
 
     /// Blocks until all submitted GPU work has finished.
     public func waitIdle() {
@@ -414,6 +455,7 @@ public final class Engine {
         while encoded < min(maxNew, 1 + firstChunk) { encodeDecodeStep(e, writeLogits: false); encoded += 1 }
         e.endEncoding()
         cb.commit()
+        timing.tCommit = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         inflight.append(cb)
 
         var out: [Int32] = []

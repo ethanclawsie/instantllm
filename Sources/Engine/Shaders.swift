@@ -111,6 +111,11 @@ inline void stage_plain(device const float* x, threadgroup float* xs, int n, uin
     threadgroup_barrier(mem_flags::mem_threadgroup);
 }
 
+// Wakes the GPU ahead of a request (an empty command buffer does not).
+kernel void k_noop(device int* sink [[buffer(0)]], uint i [[thread_position_in_grid]]) {
+    if (i == 0xFFFFFFFF) sink[0] = 1;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Prompt embedding: grid (n), 256 threads.
 kernel void k_embed_prompt(device const wtype* E [[buffer(0)]],

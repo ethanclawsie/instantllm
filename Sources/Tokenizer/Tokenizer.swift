@@ -42,7 +42,10 @@ public final class Tokenizer: @unchecked Sendable {
     let specBytes: UnsafePointer<UInt8>
     let nSpecials: Int
     let specFirstByte: Int32             // shared first byte of all specials, or -1
-    var sink: UInt8 = 0
+    // Chat template with {system} and {user} cut out: bytes [0, cut0) {system} [cut0, cut1) {user} [cut1, len)
+    let chatBytes: UnsafeMutablePointer<UInt8>
+    let chatCut: (Int, Int)
+    let chatLen: Int
 
     public let imStart: Int32
     public let imEnd: Int32
@@ -64,9 +67,10 @@ public final class Tokenizer: @unchecked Sendable {
             throw TokenizerError.io("mmap failed for \(path)")
         }
         let hdr = UnsafeRawPointer(m).assumingMemoryBound(to: UInt32.self)
-        guard hdr[H.fMagic] == H.magic, hdr[H.fVersion] == H.version, Int(hdr[H.fFileSize]) == size else {
+        guard hdr[H.fMagic] == H.magic, hdr[H.fVersion] == H.version, Int(hdr[H.fFileSize]) == size,
+              Tokenizer.sectionsInBounds(hdr, size) else {
             munmap(m, size)
-            throw TokenizerError.format("\(path): not a compiled tokenizer (or wrong version); recompile it")
+            throw TokenizerError.format("\(path): not a valid compiled tokenizer (or wrong version); recompile it")
         }
         base = m
         mappedSize = size
@@ -94,9 +98,51 @@ public final class Tokenizer: @unchecked Sendable {
         imStart = Int32(bitPattern: hdr[H.fImStart])
         imEnd = Int32(bitPattern: hdr[H.fImEnd])
         endOfText = Int32(bitPattern: hdr[H.fEndOfText])
+        // chat template: S0 "system\n" | S1 "\n" S0 "user\n" | S1 "\n" S0 "assistant\n"
+        let off = core.tokOff, tb = core.tokBytes
+        let s0 = (tb + Int(off[Int(imStart)]), Int(off[Int(imStart) + 1] - off[Int(imStart)]))
+        let s1 = (tb + Int(off[Int(imEnd)]), Int(off[Int(imEnd) + 1] - off[Int(imEnd)]))
+        let lits: [StaticString] = ["system\n", "\n", "user\n", "\n", "assistant\n"]
+        let len = 3 * s0.1 + 2 * s1.1 + lits.reduce(0) { $0 + $1.utf8CodeUnitCount }
+        let cb = UnsafeMutablePointer<UInt8>.allocate(capacity: len)
+        var w = 0
+        func put(_ p: UnsafePointer<UInt8>, _ n: Int) {
+            (cb + w).initialize(from: p, count: n)
+            w += n
+        }
+        put(s0.0, s0.1); put(lits[0].utf8Start, lits[0].utf8CodeUnitCount)
+        let cut0 = w
+        put(s1.0, s1.1); put(lits[1].utf8Start, 1); put(s0.0, s0.1); put(lits[2].utf8Start, lits[2].utf8CodeUnitCount)
+        let cut1 = w
+        put(s1.0, s1.1); put(lits[3].utf8Start, 1); put(s0.0, s0.1); put(lits[4].utf8Start, lits[4].utf8CodeUnitCount)
+        chatBytes = cb
+        chatLen = len
+        chatCut = (cut0, cut1)
     }
 
-    deinit { munmap(base, mappedSize) }
+    /// Every section of a compiled file lies inside the file (guards against truncated/corrupt files).
+    static func sectionsInBounds(_ h: UnsafePointer<UInt32>, _ size: Int) -> Bool {
+        let mergeBits = Int(h[H.fMergeBits]), tokenBits = Int(h[H.fTokenBits]), nTotal = Int(h[H.fNTotal])
+        guard mergeBits >= 4 && mergeBits <= 30 && tokenBits >= 4 && tokenBits <= 30, nTotal > 256,
+              nTotal < (1 << 18), Int(h[H.fNVocab]) <= nTotal, Int(h[H.fImStart]) < nTotal, Int(h[H.fImEnd]) < nTotal,
+              Int(h[H.fEndOfText]) < nTotal, h[H.fMaxTokenLen] <= 255 else { return false }
+        let need: [(Int, Int)] = [
+            (H.oTokOff, (nTotal + 1) * 4), (H.oByteTok, 1024), (H.oByteProp, 512),
+            (H.oMerge, (1 << mergeBits) * 8), (H.oTokTab, (1 << tokenBits) * 8),
+            (H.oSpecials, Int(h[H.fNSpecials]) * 12), (H.oUni1, 0x1100 * 2), (H.oUni2, Int(h[H.fNUniBlocks]) * 512),
+            (H.oDecompKeys, Int(h[H.fNDecomp]) * 4), (H.oDecompVals, Int(h[H.fNDecomp]) * 4),
+            (H.oDecompData, Int(h[H.fNDecompData]) * 4), (H.oCompKeys, Int(h[H.fNComp]) * 8),
+            (H.oCompVals, Int(h[H.fNComp]) * 4),
+        ]
+        for (field, bytes) in need where Int(h[field]) + bytes > size || Int(h[field]) % 8 != 0 { return false }
+        let tokOff = (UnsafeRawPointer(h) + Int(h[H.oTokOff])).assumingMemoryBound(to: UInt32.self)
+        return Int(h[H.oTokBytes]) + Int(tokOff[nTotal]) <= size
+    }
+
+    deinit {
+        munmap(base, mappedSize)
+        chatBytes.deallocate()
+    }
 
     // MARK: Encoding
 
@@ -112,35 +158,28 @@ public final class Tokenizer: @unchecked Sendable {
     }
 
     /// "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{user}<|im_end|>\n<|im_start|>assistant\n",
-    /// tokenized like HF (apply_chat_template + encode): added tokens inside system/user are matched too.
+    /// tokenized exactly like HF (apply_chat_template + encode): added tokens inside system/user are
+    /// matched too, as HF does.
     public func encodeChat(system: String, user: String) -> [Int32] {
-        let s0 = tokenBytes(imStart), s1 = tokenBytes(imEnd)
-        let lit0 = Array("system\n".utf8), lit1 = Array("\n".utf8), lit2 = Array("user\n".utf8)
-        let lit3 = Array("assistant\n".utf8)
-        return withBytes(system) { sp, sn in
+        withBytes(system) { sp, sn in
             withBytes(user) { up, un in
-                let total = s0.count * 3 + s1.count * 2 + lit0.count + lit1.count * 2 + lit2.count + lit3.count + sn + un
+                let total = chatLen + sn + un
                 return withUnsafeTemporaryAllocation(of: UInt8.self, capacity: total) { buf in
-                    var w = 0
                     let o = buf.baseAddress!
-                    func put(_ p: UnsafeRawPointer?, _ n: Int) {
-                        if n > 0, let p { (o + w).update(from: p.assumingMemoryBound(to: UInt8.self), count: n) }
+                    var w = 0
+                    @inline(__always) func put(_ p: UnsafePointer<UInt8>, _ n: Int) {
+                        (o + w).update(from: p, count: n)
                         w += n
                     }
-                    func put(_ r: UnsafeRawBufferPointer) { put(r.baseAddress, r.count) }
-                    func put(_ a: [UInt8]) { a.withUnsafeBytes { put($0) } }
-                    put(s0); put(lit0); put(UnsafeRawPointer(sp), sn); put(s1); put(lit1)
-                    put(s0); put(lit2); put(UnsafeRawPointer(up), un); put(s1); put(lit1)
-                    put(s0); put(lit3)
+                    put(chatBytes, chatCut.0)
+                    put(sp, sn)
+                    put(chatBytes + chatCut.0, chatCut.1 - chatCut.0)
+                    put(up, un)
+                    put(chatBytes + chatCut.1, chatLen - chatCut.1)
                     return encodeBytes(UnsafePointer(o), w, specials: true)
                 }
             }
         }
-    }
-
-    /// Encode UTF-8 bytes (must be valid UTF-8).
-    public func encode(utf8 p: UnsafePointer<UInt8>, count n: Int, specials: Bool) -> [Int32] {
-        encodeBytes(p, n, specials: specials)
     }
 
     @inline(__always)
@@ -325,15 +364,78 @@ public final class Tokenizer: @unchecked Sendable {
         }
     }
 
-    /// Touch every page of the mapping (moves first-use page faults off the critical path).
+    /// Pre-map every page of the file (on macOS, MADV_WILLNEED maps resident pages: ~80 us for the
+    /// whole file). Without it the first encode after init pays ~15-20 us of page faults. Call it from
+    /// a background thread during startup to take that cost off the critical path.
     public func prefetch() {
-        var acc: UInt8 = 0
-        let p = UnsafeRawPointer(base).assumingMemoryBound(to: UInt8.self)
-        var i = 0
-        while i < mappedSize {
-            acc &+= p[i]
-            i += 4096
+        _ = madvise(base, mappedSize, MADV_WILLNEED)
+    }
+}
+
+/// Incremental detokenizer for streaming output: feed token ids as they are generated and get back
+/// text that is safe to show (an incomplete UTF-8 sequence at the end is held back until the next
+/// token completes it). The concatenation of all returned chunks plus `finish()` equals
+/// `decode(allIds)` exactly (invalid bytes become U+FFFD the same way).
+public struct TextStream {
+    let tok: Tokenizer
+    var pending: [UInt8] = []
+
+    public init(_ tok: Tokenizer) {
+        self.tok = tok
+        pending.reserveCapacity(16)
+    }
+
+    public mutating func push(_ id: Int32) -> String {
+        let b = tok.tokenBytes(id)
+        if b.isEmpty { return "" }
+        pending.append(contentsOf: b)
+        // Hold back a trailing prefix of a valid multi-byte sequence (at most 3 bytes).
+        let n = pending.count
+        var keep = 0
+        var k = n - 1
+        while k >= 0 && n - k <= 3 {
+            let c = pending[k]
+            if c & 0xC0 == 0x80 {  // continuation byte: keep looking for the lead
+                k -= 1
+                continue
+            }
+            let need = c >= 0xF0 && c <= 0xF4 ? 4 : c >= 0xE0 && c <= 0xEF ? 3 : c >= 0xC2 && c <= 0xDF ? 2 : 1
+            if need > n - k && TextStream.validPrefix(pending, k) { keep = n - k }
+            break
         }
-        sink = acc
+        if keep == n { return "" }
+        let out = String(decoding: pending[0..<(n - keep)], as: UTF8.self)
+        pending.removeFirst(n - keep)
+        return out
+    }
+
+    /// Flush whatever is held back (an unfinished sequence decodes to U+FFFD, as in `decode`).
+    public mutating func finish() -> String {
+        defer { pending.removeAll(keepingCapacity: true) }
+        return pending.isEmpty ? "" : String(decoding: pending, as: UTF8.self)
+    }
+
+    /// pending[k...] is a proper prefix of some well-formed UTF-8 sequence.
+    static func validPrefix(_ p: [UInt8], _ k: Int) -> Bool {
+        let c = p[k]
+        var i = k + 1
+        if i < p.count {
+            let d = p[i]
+            let ok: Bool
+            switch c {
+            case 0xE0: ok = d >= 0xA0 && d <= 0xBF
+            case 0xED: ok = d >= 0x80 && d <= 0x9F
+            case 0xF0: ok = d >= 0x90 && d <= 0xBF
+            case 0xF4: ok = d >= 0x80 && d <= 0x8F
+            default: ok = d & 0xC0 == 0x80
+            }
+            if !ok { return false }
+            i += 1
+        }
+        while i < p.count {
+            if p[i] & 0xC0 != 0x80 { return false }
+            i += 1
+        }
+        return true
     }
 }

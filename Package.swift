@@ -8,12 +8,14 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .executable(name: "instantllm", targets: ["instantllm"]),
+        .executable(name: "ill", targets: ["ill"]),
     ],
     targets: [
         .target(name: "Tokenizer", swiftSettings: release),
         .target(name: "CShim"),
         .target(name: "Engine", dependencies: ["CShim"], swiftSettings: release),
         .executableTarget(name: "instantllm", dependencies: ["Engine", "Tokenizer"], swiftSettings: release),
+        .executableTarget(name: "ill", cSettings: [.unsafeFlags(["-O2"])]),
         .executableTarget(name: "tokcheck", dependencies: ["Tokenizer"], swiftSettings: release),
     ],
     swiftLanguageModes: [.v5]

@@ -65,11 +65,13 @@ inline void mv_rows(device const uchar* W, device const half2* SB, uint r0,
     constexpr int NG = K / 64;
     for (int r = 0; r < R; ++r) acc[r] = 0.f;
     for (int c = lane; c < NC; c += 32) {
+        // x pre-scaled by 16: a nibble n unpacks to fp16 (1 + n/16) with bit ops only, so the dot
+        // product is sum((16 + n) x) = sum(n x) + 16 * sum(x).
         float xv[32];
         float xsum = 0.f;
         for (int j = 0; j < 32; j += 4) {
             const float4 t = *((threadgroup const float4*)(xs + c * 32 + j));
-            xv[j] = t.x; xv[j + 1] = t.y; xv[j + 2] = t.z; xv[j + 3] = t.w;
+            xv[j] = 16.f * t.x; xv[j + 1] = 16.f * t.y; xv[j + 2] = 16.f * t.z; xv[j + 3] = 16.f * t.w;
             xsum += t.x + t.y + t.z + t.w;
         }
         for (int r = 0; r < R; ++r) {
@@ -78,9 +80,17 @@ inline void mv_rows(device const uchar* W, device const half2* SB, uint r0,
             float d = 0.f;
             for (int u = 0; u < 4; ++u) {
                 const uint v = w[u];
-                for (int k = 0; k < 8; ++k) d += float((v >> (4 * k)) & 0xFu) * xv[u * 8 + k];
+                const half2 p04 = as_type<half2>(((v << 6) & 0x03C003C0u) | 0x3C003C00u);
+                const half2 p15 = as_type<half2>(((v << 2) & 0x03C003C0u) | 0x3C003C00u);
+                const half2 p26 = as_type<half2>(((v >> 2) & 0x03C003C0u) | 0x3C003C00u);
+                const half2 p37 = as_type<half2>(((v >> 6) & 0x03C003C0u) | 0x3C003C00u);
+                thread const float* xu = xv + u * 8;
+                d = fma(float(p04.x), xu[0], d); d = fma(float(p15.x), xu[1], d);
+                d = fma(float(p26.x), xu[2], d); d = fma(float(p37.x), xu[3], d);
+                d = fma(float(p04.y), xu[4], d); d = fma(float(p15.y), xu[5], d);
+                d = fma(float(p26.y), xu[6], d); d = fma(float(p37.y), xu[7], d);
             }
-            acc[r] += sb.x * d + sb.y * xsum;
+            acc[r] += sb.x * (d - 16.f * xsum) + sb.y * xsum;
         }
     }
     for (int r = 0; r < R; ++r) acc[r] = simd_sum(acc[r]);
@@ -267,13 +277,14 @@ kernel void k_attention(device const float* q [[buffer(0)]],
                         device const half* vc [[buffer(2)]],
                         device float* out [[buffer(3)]],
                         device const State* st [[buffer(4)]],
+                        constant int& toff [[buffer(5)]],
                         uint2 tgp [[threadgroup_position_in_grid]],
                         uint tid [[thread_index_in_threadgroup]],
                         uint lane [[thread_index_in_simdgroup]],
                         uint sg [[simdgroup_index_in_threadgroup]]) {
     if (st->done) return;
     const int h = tgp.x;
-    const int t = tgp.y;
+    const int t = tgp.y + toff;
     if (t >= st->n) return;
     const int L = st->pos + t + 1;
     const int g = h / (NH / NKV);
@@ -1078,6 +1089,7 @@ GEMM3(k_g3_gu_##TT, H, 2, TT, 4) \
 GEMM3(k_g3_down_##TT, FF, 1, TT, 4)
 GEMM3_ALL(8)
 GEMM3_ALL(16)
+GEMM3_ALL(24)
 GEMM3_ALL(32)
 #endif
 
@@ -1104,23 +1116,30 @@ inline void q4a_tile(device const uchar* W, uint blk0, uint step, threadgroup ha
     const uint4 sc = ((device const uint4*)(pb + NN * 512))[l];
     const uint2 zl = ((device const uint2*)(pb + (NN + 1) * 512))[l];
     const uint zh = ((device const uint*)(pb + (NN + 1) * 512 + 256))[l];
-    float sv[16], zv[16];
+    // w = s (n - z) = (16 s) (1 + n/16) - s (16 + z): one half2 FMA per two weights on the fp16-magic unpack.
+    float sv[16];
+    half2 mul[16], add[16];
     for (int j = 0; j < 4; j++) e5m3x4(sc[j], sv + 4 * j);
     for (int r = 0; r < 16; r++) {
         const uint lo = ((r < 8 ? zl.x : zl.y) >> (4 * (r & 7))) & 0xFu;
-        zv[r] = float(lo | (((zh >> (2 * r)) & 0x3u) << 4)) * 0.25f;
+        const float z = float(lo | (((zh >> (2 * r)) & 0x3u) << 4)) * 0.25f;
+        mul[r] = half2(half(16.f * sv[r]));
+        add[r] = half2(half(-sv[r] * (16.f + z)));
     }
-    threadgroup half* dst = ws + (16 * bb) * BK + COLS * ls;
+    threadgroup half2* dst = (threadgroup half2*)(ws + (16 * bb) * BK + COLS * ls);
     for (int c = sub; c < NN; c += LPG) {
         const uint4 w = ((device const uint4*)(pb + c * 512))[l];
         for (int j = 0; j < 4; j++) {
             const uint ww = w[j];
-            for (int k = 0; k < 4; k++) {
-                const int r = 4 * j + k;
-                const uint byte = (ww >> (8 * k)) & 0xFFu;
-                dst[r * BK + 2 * c] = half(sv[r] * (float(byte & 0xFu) - zv[r]));
-                dst[r * BK + 2 * c + 1] = half(sv[r] * (float(byte >> 4) - zv[r]));
-            }
+            const half2 a = as_type<half2>(((ww << 6) & 0x03C003C0u) | 0x3C003C00u);   // rows 0,2 col 0
+            const half2 cc = as_type<half2>(((ww << 2) & 0x03C003C0u) | 0x3C003C00u);  // rows 0,2 col 1
+            const half2 b = as_type<half2>(((ww >> 2) & 0x03C003C0u) | 0x3C003C00u);   // rows 1,3 col 0
+            const half2 d = as_type<half2>(((ww >> 6) & 0x03C003C0u) | 0x3C003C00u);   // rows 1,3 col 1
+            const int r = 4 * j;
+            dst[(r + 0) * (BK / 2) + c] = fma(half2(a.x, cc.x), mul[r + 0], add[r + 0]);
+            dst[(r + 1) * (BK / 2) + c] = fma(half2(b.x, d.x), mul[r + 1], add[r + 1]);
+            dst[(r + 2) * (BK / 2) + c] = fma(half2(a.y, cc.y), mul[r + 2], add[r + 2]);
+            dst[(r + 3) * (BK / 2) + c] = fma(half2(b.y, d.y), mul[r + 3], add[r + 3]);
         }
     }
 }
@@ -1229,6 +1248,7 @@ GEMM3A(k_g3_gu_##TT, H, 2, TT) \
 GEMM3A(k_g3_down_##TT, FF, 1, TT)
 GEMM3A_ALL(8)
 GEMM3A_ALL(16)
+GEMM3A_ALL(24)
 GEMM3A_ALL(32)
 #endif
 """#

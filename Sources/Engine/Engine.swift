@@ -157,7 +157,7 @@ public final class Engine {
             }
         }
         if model.format == .q4 || model.format == .q4a {
-            for tt in [8, 16, 32] { pG3[tt] = try ["qkv", "o", "gu", "down"].map { try pipe("k_g3_\($0)_\(tt)") } }
+            for tt in [8, 16, 24, 32] { pG3[tt] = try ["qkv", "o", "gu", "down"].map { try pipe("k_g3_\($0)_\(tt)") } }
         } else {
             useGemm3 = false
         }
@@ -200,6 +200,8 @@ public final class Engine {
         e.setBuffer(vc, offset: kvOff, index: 2)
         e.setBuffer(attn, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
+        var toff: Int32 = 0
+        e.setBytes(&toff, length: 4, index: 5)
         grid(e, Dims.heads, n)
         } else if part == 2 {
         e.setComputePipelineState(pOProj)
@@ -256,7 +258,7 @@ public final class Engine {
     private func encodeG2(_ e: MTLComputeCommandEncoder, _ kind: Int, a: MTLBuffer, wID: Int, sbID: Int, biasID: Int?,
                           outf: MTLBuffer, outh: MTLBuffer, kvOff: Int, rows: Int, n: Int) {
         if useGemm3 {
-            let tt = n <= 8 ? 8 : (n <= 16 ? 16 : 32)
+            let tt = n <= 8 ? 8 : (n <= 16 ? 16 : (n <= 24 ? 24 : 32))
             e.setComputePipelineState(pG3[tt]![kind])
             e.setBuffer(a, offset: 0, index: 0)
             w(e, wID, 1)
@@ -286,6 +288,33 @@ public final class Engine {
         grid(e, rows / 32, (n + tf * 8 - 1) / (tf * 8), kind == 3 ? 256 : 128)
     }
 
+    /// O, gate/up and down for the single row n-1 with the decode kernels (buffer offsets select the row).
+    private func encodeLastRowTail(_ e: MTLComputeCommandEncoder, _ l: Int, n: Int, kvOff: Int) {
+        let rowF = (n - 1) * Dims.hidden * 4
+        e.setComputePipelineState(pOProj)
+        w(e, TensorID.layer(l, TensorID.wo), 0)
+        w(e, TensorID.layer(l, TensorID.woSB), 1)
+        e.setBuffer(attn, offset: rowF, index: 2)
+        e.setBuffer(x, offset: rowF, index: 3)
+        e.setBuffer(state, offset: 0, index: 4)
+        if q4a { grid(e, 28, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
+        e.setComputePipelineState(pMlpIn)
+        w(e, TensorID.layer(l, TensorID.wgu), 0)
+        w(e, TensorID.layer(l, TensorID.wguSB), 1)
+        w(e, TensorID.layer(l, TensorID.mlpNorm), 2)
+        e.setBuffer(x, offset: rowF, index: 3)
+        e.setBuffer(hbuf, offset: 0, index: 4)
+        e.setBuffer(state, offset: 0, index: 5)
+        if q4a { grid(e, 304, 1, 64) } else { grid(e, Dims.ff / 16, 1) }
+        e.setComputePipelineState(pMlpOut)
+        w(e, TensorID.layer(l, TensorID.wd), 0)
+        w(e, TensorID.layer(l, TensorID.wdSB), 1)
+        e.setBuffer(hbuf, offset: 0, index: 2)
+        e.setBuffer(x, offset: rowF, index: 3)
+        e.setBuffer(state, offset: 0, index: 4)
+        if q4a { grid(e, 56, 1, 128) } else { grid(e, Dims.hidden / 32, 1) }
+    }
+
     private func encodePrefillLayer2(_ e: MTLComputeCommandEncoder, _ l: Int, n: Int) {
         let kvOff = l * Dims.kvHeads * maxContext * Dims.headDim * 2
         let L = { TensorID.layer(l, $0) }
@@ -296,6 +325,18 @@ public final class Engine {
         e.setComputePipelineState(pAttention)
         e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
         e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
+        if l == Dims.layers - 1 && n > 1 {
+            // Last layer: only the last token's output is needed (the KV of all tokens is already
+            // written by the QKV kernel), so attention, O and the MLP run for that token alone,
+            // with the decode kernels on row n-1.
+            var toff = Int32(n - 1)
+            e.setBytes(&toff, length: 4, index: 5)
+            grid(e, Dims.heads, 1)
+            encodeLastRowTail(e, l, n: n, kvOff: kvOff)
+            return
+        }
+        var toff: Int32 = 0
+        e.setBytes(&toff, length: 4, index: 5)
         grid(e, Dims.heads, n)
         e.setComputePipelineState(pF32ToH)
         e.setBuffer(attn, offset: 0, index: 0); e.setBuffer(attnh, offset: 0, index: 1); e.setBuffer(state, offset: 0, index: 2)
@@ -320,6 +361,8 @@ public final class Engine {
         e.setBuffer(vc, offset: kvOff, index: 2)
         e.setBuffer(attn, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
+        var toff: Int32 = 0
+        e.setBytes(&toff, length: 4, index: 5)
         grid(e, Dims.heads, n)
         encodeGemm(e, pGemmO!, a: attn, wID: L(TensorID.wo), sbID: L(TensorID.woSB), biasID: nil,
                    out: x, kvOff: kvOff, rowsPerTG: 32, rows: Dims.hidden, n: n)
@@ -419,6 +462,7 @@ public final class Engine {
             for l in 0..<Dims.layers {
                 e.setComputePipelineState(self.pAttention); e.setBuffer(self.q, offset: 0, index: 0); e.setBuffer(self.kc, offset: kv(l), index: 1)
                 e.setBuffer(self.vc, offset: kv(l), index: 2); e.setBuffer(self.attn, offset: 0, index: 3); e.setBuffer(self.state, offset: 0, index: 4)
+                var toff: Int32 = 0; e.setBytes(&toff, length: 4, index: 5)
                 self.grid(e, Dims.heads, n) } }))
         r.append(("  24x g2 o", gpuTime(n: n, pos: pos) { e in
             for l in 0..<Dims.layers { self.encodeG2(e, 1, a: self.attnh, wID: TensorID.layer(l, TensorID.wo), sbID: TensorID.layer(l, TensorID.woSB), biasID: nil, outf: self.x, outh: self.hh, kvOff: 0, rows: Dims.hidden, n: n) } }))

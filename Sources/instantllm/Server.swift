@@ -97,12 +97,19 @@ func serve(args: Args) -> Never {
     // While idle, a no-op dispatch every few seconds keeps the GPU out of deep sleep (waking from
     // it adds ~40 ms to the next request); after `idle-exit` seconds without requests, quit.
     let keepalive = Double(args.int("keepalive-ms", 2000)) / 1000
+    // The GPU clock governor drops the clock within ~50 ms of idle and a ~20 ms request ends
+    // before it ramps back (requests after a pause took ~2x as long). A 32-thread spin kernel on a
+    // second queue keeps the GPU looking busy (measured cost < 1 W) for `heat-seconds` after the
+    // last request; 0 disables it.
+    let heatSeconds = Double(args.int("heat-seconds", 300))
+    if heatSeconds > 0 { engine.startHeater() }
     var lastRequest = Date()
     while true {
         var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
         let pr = poll(&pfd, 1, Int32(keepalive * 1000))
         if pr == 0 {
             if Date().timeIntervalSince(lastRequest) > idleExit { unlink(path); exit(0) }
+            if Date().timeIntervalSince(lastRequest) > heatSeconds { engine.stopHeater() }
             engine.wake()
             continue
         }
@@ -112,6 +119,7 @@ func serve(args: Args) -> Never {
         if c < 0 { continue }
         let tAccept = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         engine.wake()
+        if heatSeconds > 0 { engine.startHeater() }
         var hdr = [UInt32](repeating: 0, count: 4)
         guard readAll(c, &hdr, 16), hdr[0] == 0x3151_4C49, Int(hdr[2]) + Int(hdr[3]) < buf.count else { close(c); continue }
         let sLen = Int(hdr[2]), pLen = Int(hdr[3])

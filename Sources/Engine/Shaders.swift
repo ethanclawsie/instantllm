@@ -155,6 +155,13 @@ inline void stage_plain(device const float* x, threadgroup float* xs, int n, uin
 }
 
 // Wakes the GPU ahead of a request (an empty command buffer does not).
+// Keeps one SIMD lane group busy for `iters` dependent FMAs (GPU clock experiments).
+kernel void k_spin(device float* sink [[buffer(0)]], constant int& iters [[buffer(1)]], uint i [[thread_position_in_grid]]) {
+    float a = float(i), b = 1.0001f;
+    for (int k = 0; k < iters; ++k) { a = fma(a, b, 0.5f); b = fma(b, 0.9999f, 0.0001f); }
+    if (a == 12345.f) sink[0] = a;
+}
+
 kernel void k_noop(device int* sink [[buffer(0)]], uint i [[thread_position_in_grid]]) {
     if (i == 0xFFFFFFFF) sink[0] = 1;
 }
@@ -251,11 +258,11 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
     if (st->done) return;
     threadgroup float rv[32];
     threadgroup int ri[32];
-    threadgroup int g[8];
-    threadgroup int next_rows[8];
+    threadgroup int g[16];
+    threadgroup int next_rows[16];
     threadgroup int nrows_s;
     threadgroup int have_s;
-    threadgroup int ob[OB_MAX + 8];   // recent output tokens, then the drafts of this commit
+    threadgroup int ob[OB_MAX + 16];  // recent output tokens, then the drafts of this commit
     const int nv = st->nver;
     for (int t = 0; t < nv; t++) {
         float best = -INFINITY;
@@ -316,14 +323,15 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (tid == 0) {
             int L = have - w0;
-            int hist[NG_MAXN + 8];
+            int hist[NG_MAXN + 16];
             int len = 0;
             for (int i = NG_MAXN; i >= 1; i--) hist[len++] = have - i >= 0 ? ob[have - i - w0] : -1;  // -1: before the output
             const int T = st->tspec;
+            const int maxd = st->pad2 ? 0 : T - 1;   // pad2: no drafting (reference runs with the same kernels)
             const int np = prompt[0];
             device const int* P = prompt + 4;
             int nd = 0;
-            while (nd < T - 1) {
+            while (nd < maxd) {
                 int d = -1;
                 int bn = 2;
                 for (int j = L - 1; j >= 1 && bn < 8; j--) {
@@ -1485,6 +1493,18 @@ inline void gemm3_body(device half* X, device const wtype* W, device const half2
             for (int q = 0; q < NS; ++q) v += Os[q * TT * 32 + w];
             outf[(t0 + t) * H + r0 + r] += v;
         }
+    } else if (MODE == 3) {
+        // lm_head: per token, the max over this tile's 32 vocabulary rows (smallest id on ties),
+        // as the [t][LMH_TGS] partials the commit kernels reduce. outh carries the index buffer.
+        device int* pidx = (device int*)outh;
+        for (int t = sg; t < TT; t += NS) {
+            if (t0 + t >= n) continue;
+            float v = 0.f;
+            for (int q = 0; q < NS; ++q) v += Os[q * TT * 32 + t * 32 + lane];
+            const float m = simd_max(v);
+            const int idx = simd_min(v == m ? int(r0 + lane) : 0x7fffffff);
+            if (lane == 0) { outf[(t0 + t) * LMH_TGS + tgp.x] = m; pidx[(t0 + t) * LMH_TGS + tgp.x] = idx; }
+        }
     } else {
         for (int w = tid; w < TT * 8; w += NT) {
             const int t = w / 8, b = w % 8;
@@ -1523,6 +1543,22 @@ GEMM3_ALL(8)
 GEMM3_ALL(16)
 GEMM3_ALL(24)
 GEMM3_ALL(32)
+
+// Tied lm_head on the Neural Accelerators for the rows of a wide verify pass: X = half(final
+// RMSNorm(x)), grid (VOCAB / 32), per-tile argmax partials like k_lm_head_T.
+#define GEMM3L(NAME, TT) \
+kernel void NAME(device half* X [[buffer(0)]], device const wtype* E [[buffer(1)]], \
+                 device const half2* ESB [[buffer(2)]], device float* pval [[buffer(3)]], \
+                 device int* pidx [[buffer(4)]], device const State* st [[buffer(5)]], \
+                 uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]], \
+                 uint lane [[thread_index_in_simdgroup]], uint sg [[simdgroup_index_in_threadgroup]]) { \
+    if (st->done) return; \
+    constexpr int WB = 4 * 32 * 64 * 2, OB = 4 * TT * 32 * 4; \
+    threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
+    gemm3_body<H, 3, TT, 4>(X, E, ESB, pval, pval, (device half*)pidx, nullptr, nullptr, nullptr, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
+}
+GEMM3L(k_g3_lmh_8, 8)
+GEMM3L(k_g3_lmh_16, 16)
 #endif
 
 // ---------------------------------------------------------------------------------------------

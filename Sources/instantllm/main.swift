@@ -1,5 +1,6 @@
 import Engine
 import Foundation
+import Metal
 import Tokenizer
 
 func fail(_ msg: String) -> Never {
@@ -19,7 +20,7 @@ struct Args {
                 let key = String(a.dropFirst(2))
                 if let eq = key.firstIndex(of: "=") {
                     options[String(key[..<eq])] = String(key[key.index(after: eq)...])
-                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep", "sketch", "ttft-breakdown"].contains(key) {
+                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep", "sketch", "ttft-breakdown", "no-heater"].contains(key) {
                     flags.insert(key)
                 } else if let v = it.next() {
                     options[key] = v
@@ -208,14 +209,19 @@ case "bench":
     print("engine\tvariant\tmode\tprompt_idx\trep\te2e_ms\tttft_ms\tprefill_tokens\tgen_tokens\tdecode_tok_s\ttext")
     var e2e: [Double] = [], ttft: [Double] = [], dec: [Double] = []
     var totPasses = 0, totAcc = 0, totGen = 0
+    let gapUs = useconds_t(args.int("gap-ms", 0) * 1000)   // idle time before each request
+    if args.options["heater-iters"] != nil { engine.startHeater(chunkIters: Int32(args.int("heater-iters", 200_000))) }
     for (i, p) in prompts.enumerated() {
         for r in 0..<reps {
+            if gapUs > 0 { usleep(gapUs) }
             let res = request(p)
             totPasses += res.t.passes; totAcc += res.t.accepted; totGen += res.gen
             if args.flags.contains("verbose") { FileHandle.standardError.write("p\(i) candidates(last pass) \(engine.lastSketchCandidates())\n".data(using: .utf8)!) }
             if args.flags.contains("ttft-breakdown") {
-                FileHandle.standardError.write(String(format: "p%d n=%d tokenize %.3f  encode+commit %.3f  commit->first %.3f ms\n", i, res.t.prefillTokens,
-                    ms(res.t0, res.t.tStart), ms(res.t.tStart, res.t.tCommit), ms(res.t.tCommit, res.t.tFirst)).data(using: .utf8)!)
+                var gs = 0.0, gd = 0.0
+                if let cb = res.t.prefillCB { cb.waitUntilCompleted(); gs = cb.gpuStartTime * 1e3 - Double(res.t.tCommit) / 1e6; gd = (cb.gpuEndTime - cb.gpuStartTime) * 1e3 }
+                FileHandle.standardError.write(String(format: "p%d n=%d tokenize %.3f  encode+commit %.3f  commit->first %.3f ms  commit->gpu %.3f  gpu %.3f\n", i, res.t.prefillTokens,
+                    ms(res.t0, res.t.tStart), ms(res.t.tStart, res.t.tCommit), ms(res.t.tCommit, res.t.tFirst), gs, gd).data(using: .utf8)!)
             }
             let ttftMs = ms(res.t0, res.t.tFirst)
             let decTs = res.gen > 1 ? Double(res.gen - 1) / (ms(res.t.tFirst, res.t.tEnd) / 1e3) : Double.nan
@@ -238,6 +244,7 @@ case "run":
         tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
         engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"), pinMemory: false)
     } catch { fail("\(error)") }
+    if !args.flags.contains("no-heater") { engine.startHeater() }   // the GPU clock ramps while we load
     engine.specT = args.int("spec", engine.defaultSpecT)
     if engine.specT > 1 && (try? engine.loadDraftTable(path: args.get("draft-table", resolveAsset(nil, env: "INSTANTLLM_DRAFT", name: "ngram.bin")))) == nil { engine.specT = 1 }
     // System-prompt KV saved by an earlier run (keyed by model file and the exact prefix tokens).
@@ -349,6 +356,37 @@ case "idletest":
         let t = engine.lastTiming
         print(String(format: "idle %4.1f s: ttft %7.2f ms  e2e %7.2f ms  (%d tokens)", idle, ms(t0, t.tFirst), ms(t0, t.tEnd), out.count))
     }
+
+case "ramp":
+    // GPU clock ramp after idle: per-token intervals of a plain (one step per command buffer)
+    // generation that starts after `gap` seconds without GPU work.
+    let tok: Tokenizer
+    let engine: Engine
+    do {
+        tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
+        engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"))
+    } catch { fail("\(error)") }
+    let system = (try? String(contentsOfFile: "bench/system.txt", encoding: .utf8)) ?? ""
+    let ids = tok.encodeChat(system: system, user: "kill all processes named node")
+    engine.eos = (-5, -5)
+    _ = engine.generate(ids, maxNew: 48)
+    for gap in [0.0, 0.02, 0.05, 0.1, 0.3, 1.0, 3.0] {
+        usleep(useconds_t(gap * 1e6))
+        var ts: [UInt64] = []
+        let t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        _ = engine.generate(ids, maxNew: 40) { _ in ts.append(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)); return true }
+        var line = String(format: "gap %4.2f s: ttft %5.2f | steps", gap, ms(t0, ts[0]))
+        for i in 1..<min(ts.count, 40) where i <= 12 || i % 4 == 0 { line += String(format: " %.2f", ms(ts[i - 1], ts[i])) }
+        print(line)
+    }
+
+case "heat":
+    // Runs the GPU heater (see Engine.startHeater) for --seconds, for power measurements.
+    let engine: Engine
+    do { engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill")) } catch { fail("\(error)") }
+    engine.startHeater(chunkIters: Int32(args.int("heater-iters", 200_000)))
+    usleep(useconds_t(args.int("seconds", 20) * 1_000_000))
+    engine.stopHeater()
 
 case "serve":
     serve(args: args)

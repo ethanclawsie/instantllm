@@ -24,6 +24,7 @@ public final class Engine {
     var ngram: MTLBuffer
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
+    var pSpin: MTLComputePipelineState?
     var pCommitSpec: MTLComputePipelineState?
     var pLmhSketch: [Int: MTLComputePipelineState] = [:], pLmhExact: [Int: MTLComputePipelineState] = [:]
     var pLmhTau: MTLComputePipelineState?
@@ -42,6 +43,10 @@ public final class Engine {
     public var defaultSpecT: Int { format == .q4a ? 1 : 3 }
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
     var pG3: [Int: [MTLComputePipelineState]] = [:]  // tokens per tile (8, 16, 32) -> [qkv, o, gu, down]
+    var pG3Lmh: [Int: MTLComputePipelineState] = [:] // tokens per tile (8, 16) -> lm_head with argmax partials
+    /// Verify passes on the Neural Accelerators (prefill GEMMs, all rows, MPP lm_head): rows are
+    /// nearly free there, so a pass can check up to 15 drafts. specT is then the rows per pass.
+    public var wideVerify = ProcessInfo.processInfo.environment["ILL_WIDE"] != nil
     public var useGemm3 = ProcessInfo.processInfo.environment["ILL_NO_G3"] == nil
     /// Prompts of at least this many new tokens use the GEMM prefill path.
     public var gemmThreshold = 2
@@ -60,7 +65,9 @@ public final class Engine {
         let tI0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         var marks: [(String, UInt64)] = []
         func mark(_ s: String) { marks.append((s, clock_gettime_nsec_np(CLOCK_UPTIME_RAW))) }
-        guard let dev = MTLCreateSystemDefaultDevice() else { throw EngineError("no Metal device") }
+        // MTLCopyAllDevices skips the display-GPU bookkeeping of MTLCreateSystemDefaultDevice:
+        // 12-16 ms instead of ~40 ms in a fresh process (Apple Silicon has a single GPU anyway).
+        guard let dev = MTLCopyAllDevices().first ?? MTLCreateSystemDefaultDevice() else { throw EngineError("no Metal device") }
         mark("device")
         device = dev
         model = try ModelFile(path: modelPath)
@@ -101,8 +108,8 @@ public final class Engine {
         state = buf(64)
         promptToks = buf(maxPass * 4)
         outToks = buf(maxSteps * 4)
-        pval = buf(4 * Dims.vocab / 32 * 4)
-        pidx = buf(4 * Dims.vocab / 32 * 4)
+        pval = buf(16 * Dims.vocab / 32 * 4)   // lm_head argmax partials [row][VOCAB / 32], up to 16 rows
+        pidx = buf(16 * Dims.vocab / 32 * 4)
         drafts = buf(64)
         lmhBounds = buf(4 * 2 * Dims.vocab / 32 * 4)
         lmhTau = buf(64)
@@ -164,6 +171,7 @@ public final class Engine {
         pMlpOut = try pipe("k_mlp_out")
         pLMHead = try pipe("k_lm_head")
         pRmsRowsH = try pipe("k_rmsnorm_rows_h")
+        pSpin = try? pipe("k_spin")
         pF32ToH = try pipe("k_f32_to_h")
         pNoop = try pipe("k_noop")
         if model.format == .q4 && model.size(TensorID.embedHi) > 0 {
@@ -200,6 +208,7 @@ public final class Engine {
         }
         do {
             for tt in [8, 16, 24, 32] { pG3[tt] = try ["qkv", "o", "gu", "down"].map { try pipe("k_g3_\($0)_\(tt)") } }
+            for tt in [8, 16] { pG3Lmh[tt] = try pipe("k_g3_lmh_\(tt)") }
         }
     }
 
@@ -331,7 +340,7 @@ public final class Engine {
         if q4a { grid(e, 56, 1, 128) } else if tFamily { grid(e, 56, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
     }
 
-    private func encodePrefillLayer2(_ e: MTLComputeCommandEncoder, _ l: Int, n: Int) {
+    private func encodePrefillLayer2(_ e: MTLComputeCommandEncoder, _ l: Int, n: Int, allRows: Bool = false) {
         let kvOff = l * Dims.kvHeads * maxContext * Dims.headDim * 2
         let L = { TensorID.layer(l, $0) }
         e.setComputePipelineState(pRmsRowsH)
@@ -341,7 +350,7 @@ public final class Engine {
         e.setComputePipelineState(pAttention)
         e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
         e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
-        if l == Dims.layers - 1 && n > 1 {
+        if l == Dims.layers - 1 && n > 1 && !allRows {
             // Last layer: only the last token's output is needed (the KV of all tokens is already
             // written by the QKV kernel), so attention, O and the MLP run for that token alone,
             // with the decode kernels on row n-1.
@@ -474,6 +483,19 @@ public final class Engine {
         encodeCommitSpec(e)
     }
 
+    /// Verify pass over T rows (last token + drafts) on the prefill GEMMs, then the MPP lm_head.
+    private func encodeWidePass(_ e: MTLComputeCommandEncoder, T: Int, commit: Bool = true) {
+        for l in 0..<Dims.layers { encodePrefillLayer2(e, l, n: T, allRows: true) }
+        e.setComputePipelineState(pRmsRowsH)
+        e.setBuffer(x, offset: 0, index: 0); w(e, TensorID.finalNorm, 1); e.setBuffer(xnh, offset: 0, index: 2); e.setBuffer(state, offset: 0, index: 3)
+        grid(e, T, 1)
+        e.setComputePipelineState(pG3Lmh[T <= 8 ? 8 : 16]!)
+        e.setBuffer(xnh, offset: 0, index: 0); w(e, TensorID.embed, 1); w(e, TensorID.embedSB, 2)
+        e.setBuffer(pval, offset: 0, index: 3); e.setBuffer(pidx, offset: 0, index: 4); e.setBuffer(state, offset: 0, index: 5)
+        grid(e, Dims.vocab / 32, 1, 128)
+        if commit { encodeCommitSpec(e) }
+    }
+
     private func encodeSpecPassNoCommit(_ e: MTLComputeCommandEncoder, T: Int, p: [MTLComputePipelineState], R: Int) {
         let saved = pCommitSpec
         pCommitSpec = pNoop
@@ -562,6 +584,11 @@ public final class Engine {
             var variants: [(String, Int, [MTLComputePipelineState], Int)] = [("T=1", 1, [pAttnIn, pOProj, pMlpIn, pMlpOut, pLMHead], 8)]
             for T in 2...4 { if let p = pSpec[T] { variants.append(("T=\(T)", T, p, Engine.specRows(T))) } }
             if let p = pSpecVar["2r4"] { variants.append(("T=2 R=4", 2, p, 4)) }
+            if pG3Lmh[8] != nil {
+                for T in [2, 4, 8, 12, 16] {
+                    r.append(("wide pass T=\(T) (MPP layers + lm_head)", gpuTime(n: T, pos: pos + n) { e in s0[9] = Int32(T); self.encodeWidePass(e, T: T, commit: false) }))
+                }
+            }
             if let p = pSpecVar["3r8"] { variants.append(("T=3 R=8", 3, p, 8)) }
             for (name, T, p, R) in variants {
                 r.append(("pass \(name) (layers + lm_head)", gpuTime(n: T, pos: pos + n) { e in
@@ -615,6 +642,7 @@ public final class Engine {
         public var tEnd: UInt64 = 0
         public var stopToken: Int32 = -1
         public var tCommit: UInt64 = 0
+        public var prefillCB: MTLCommandBuffer? = nil   // GPU start/end times for diagnostics
         public var passes = 0
         public var accepted = 0
     }
@@ -632,6 +660,27 @@ public final class Engine {
     }
 
     /// Submits a trivial dispatch so the GPU is awake (and clocked up) by the time real work arrives.
+    /// Experiment: a background thread keeps a 32-thread spin kernel running on a second queue,
+    /// so the GPU never looks idle to the clock governor (costs power).
+    private var heaterOn = false
+    public func startHeater(chunkIters: Int32 = 200_000) {
+        guard !heaterOn, let p = pSpin else { return }
+        heaterOn = true
+        let q2 = queue.device.makeCommandQueue()!
+        let sink = queue.device.makeBuffer(length: 16, options: .storageModeShared)!
+        Thread.detachNewThread { [weak self] in
+            var iters = chunkIters
+            while self?.heaterOn == true {
+                let cb = q2.makeCommandBuffer()!
+                let e = cb.makeComputeCommandEncoder()!
+                e.setComputePipelineState(p); e.setBuffer(sink, offset: 0, index: 0); e.setBytes(&iters, length: 4, index: 1)
+                e.dispatchThreadgroups(MTLSize(width: 1, height: 1, depth: 1), threadsPerThreadgroup: MTLSize(width: 32, height: 1, depth: 1))
+                e.endEncoding(); cb.commit(); cb.waitUntilCompleted()
+            }
+        }
+    }
+    public func stopHeater() { heaterOn = false }
+
     public func wake() {
         let (cb, e) = newEncoder()
         e.setComputePipelineState(pNoop)
@@ -718,6 +767,8 @@ public final class Engine {
     /// The stop token is not returned. `logitsOut`, if given, receives the logits of the first token.
     /// Decode steps per command buffer and how many steps the CPU encodes ahead.
     public var chunk = 1
+    /// Reference runs: verify passes with no drafts (same kernels, so the output must not change).
+    public var noDraft = ProcessInfo.processInfo.environment["ILL_NODRAFT"] != nil
     public var depth = Int(ProcessInfo.processInfo.environment["ILL_DEPTH"] ?? "") ?? 2
     public var firstChunk = 0
 
@@ -748,10 +799,11 @@ public final class Engine {
         let s = state.contents().assumingMemoryBound(to: Int32.self)
         s[0] = Int32(common); s[1] = Int32(n); s[2] = 0; s[3] = 0
         s[4] = Int32(maxContext); s[5] = Int32(maxNew); s[6] = eos.0; s[7] = eos.1
-        specActive = specT > 1 && pSpec[specT] != nil && ngram.length == NGramTable.slots * 16
+        specActive = specT > 1 && (wideVerify ? (specT <= 16 && pG3Lmh[8] != nil) : pSpec[specT] != nil) && ngram.length == NGramTable.slots * 16
         s[8] = 1                                   // the prefill's lm_head produces one row
         s[9] = Int32(specActive ? specT : 1)
         s[10] = 0; s[11] = 0                       // passes, accepted drafts (diagnostics)
+        s[13] = noDraft ? 1 : 0                  // pad2: drafting off (reference runs)
 
         // Prefill gets its own command buffer, committed at once. Decode steps go in small command
         // buffers kept `depth` steps ahead of the CPU: a token written by the GPU only becomes
@@ -764,6 +816,7 @@ public final class Engine {
         e.endEncoding()
         cb.commit()
         timing.tCommit = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        timing.prefillCB = cb
         inflight.append(cb)
 
         var out: [Int32] = []
@@ -781,7 +834,9 @@ public final class Engine {
                 let end = min(maxNew, encoded + chunk)
                 // a speculative pass yields 1...specT tokens; a plain step exactly one
                 while encoded < end {
-                    if specActive { encodeSpecPass(e, T: specT) } else { encodeDecodeStep(e, writeLogits: false) }
+                    if specActive {
+                        if wideVerify { encodeWidePass(e, T: specT) } else { encodeSpecPass(e, T: specT) }
+                    } else { encodeDecodeStep(e, writeLogits: false) }
                     encoded += 1
                 }
                 e.endEncoding()

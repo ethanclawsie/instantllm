@@ -62,7 +62,7 @@ let nCount: UInt32 = 21 * 28, sCount: UInt32 = 19 * 21 * 28
 }
 
 // Token table slot layout: id (18 bits) | len (8) << 18 | offset (20) << 26 | fingerprint (18) << 46.
-let slotIdBits: UInt64 = 18, slotLenShift: UInt64 = 18, slotOffShift: UInt64 = 26, slotFpShift: UInt64 = 46
+let slotLenShift: UInt64 = 18, slotOffShift: UInt64 = 26, slotFpShift: UInt64 = 46
 
 /// All lookup tables, as raw pointers into the mmapped file (or into compiler buffers).
 struct Core {

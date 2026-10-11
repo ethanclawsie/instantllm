@@ -34,11 +34,16 @@ public final class Engine {
     public private(set) var cachedTokens: [Int32] = []
 
     public init(modelPath: String, maxContext: Int = 2048, maxPass: Int = 512, maxSteps: Int = 4096,
-                copyWeights: Bool = false) throws {
+                copyWeights: Bool = false, pinMemory: Bool = true) throws {
+        let tI0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        var marks: [(String, UInt64)] = []
+        func mark(_ s: String) { marks.append((s, clock_gettime_nsec_np(CLOCK_UPTIME_RAW))) }
         guard let dev = MTLCreateSystemDefaultDevice() else { throw EngineError("no Metal device") }
+        mark("device")
         device = dev
         model = try ModelFile(path: modelPath)
         format = model.format
+        mark("mmap")
         self.maxContext = maxContext
         self.maxPass = maxPass
         self.maxSteps = maxSteps
@@ -57,6 +62,7 @@ public final class Engine {
             wbuf = wb
         }
 
+        mark("weights buffer")
         func buf(_ bytes: Int) -> MTLBuffer { dev.makeBuffer(length: max(bytes, 16), options: .storageModeShared)! }
         let H = Dims.hidden
         x = buf(maxPass * H * 4)
@@ -77,6 +83,7 @@ public final class Engine {
         pidx = buf(Dims.vocab / 32 * 4)
         logits = buf(Dims.vocab * 4)
         rope = buf(maxContext * 32 * 8)
+        mark("activation buffers")
         let r = rope.contents().assumingMemoryBound(to: Float.self)
         for p in 0..<maxContext {
             for i in 0..<32 {
@@ -87,11 +94,12 @@ public final class Engine {
             }
         }
 
+        mark("rope table")
         // Keep every allocation resident: without this, an idle process loses its GPU mappings
         // and the next token page-faults the weights back in (tens of ms per token).
         let rd = MTLResidencySetDescriptor()
         rd.initialCapacity = 32
-        if let rs = try? dev.makeResidencySet(descriptor: rd) {
+        if pinMemory, ProcessInfo.processInfo.environment["ILL_NO_RESIDENCY"] == nil, let rs = try? dev.makeResidencySet(descriptor: rd) {
             for b in [wbuf, x, xn, xnh, attnh, hh, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope] {
                 rs.addAllocation(b)
             }
@@ -101,10 +109,13 @@ public final class Engine {
             residency = rs
         }
 
+        mark("residency")
         let opts = MTLCompileOptions()
         opts.preprocessorMacros = ["FMT": NSNumber(value: model.format.rawValue)]
         opts.mathMode = .fast
+        let tLib0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let lib = try dev.makeLibrary(source: shaderSource, options: opts)
+        let tLib1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         func pipe(_ name: String) throws -> MTLComputePipelineState {
             guard let f = lib.makeFunction(name: name) else { throw EngineError("missing kernel \(name)") }
             return try dev.makeComputePipelineState(function: f)
@@ -125,6 +136,14 @@ public final class Engine {
         pRmsRowsH = try pipe("k_rmsnorm_rows_h")
         pF32ToH = try pipe("k_f32_to_h")
         pNoop = try pipe("k_noop")
+        if ProcessInfo.processInfo.environment["ILL_VERBOSE_INIT"] != nil {
+            let tP = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+            var prev = tI0
+            var line = "init:"
+            for (n, t) in marks { line += String(format: " %@ %.1f", n, Double(t - prev) / 1e6); prev = t }
+            line += String(format: " library %.1f pipelines %.1f ms\n", Double(tLib1 - tLib0) / 1e6, Double(tP - tLib1) / 1e6)
+            FileHandle.standardError.write(line.data(using: .utf8)!)
+        }
         for tf in 1...4 {
             pG2.append(try ["qkv", "o", "gu", "down"].map { try pipe("k_g2_\($0)_\(tf)") })
         }
@@ -410,6 +429,58 @@ public final class Engine {
         grid(e, 1, 1, 32)
         e.endEncoding()
         cb.commit()
+    }
+
+    // MARK: prefix KV cache on disk (a fresh process skips prefilling the system prompt)
+
+    private func prefixKey() -> [UInt64] {
+        var sb = stat()
+        stat(model.path, &sb)
+        return [0x3156_4B4C_4C49, UInt64(sb.st_size), UInt64(sb.st_mtimespec.tv_sec), UInt64(sb.st_mtimespec.tv_nsec), UInt64(maxContext)]
+    }
+
+    /// Saves keys/values of the first `tokens.count` cached tokens (they must be cached).
+    public func savePrefix(path: String, tokens: [Int32]) {
+        waitIdle()
+        guard tokens.count <= cachedTokens.count, Array(cachedTokens.prefix(tokens.count)) == tokens else { return }
+        var d = Data()
+        for v in prefixKey() { withUnsafeBytes(of: v) { d.append(contentsOf: $0) } }
+        withUnsafeBytes(of: UInt64(tokens.count)) { d.append(contentsOf: $0) }
+        tokens.withUnsafeBytes { d.append(contentsOf: $0) }
+        let row = Dims.headDim * 2, n = tokens.count
+        for buf in [kc, vc] {
+            for l in 0..<Dims.layers { for h in 0..<Dims.kvHeads {
+                let off = ((l * Dims.kvHeads + h) * maxContext) * row
+                d.append(Data(bytesNoCopy: buf.contents() + off, count: n * row, deallocator: .none))
+            } }
+        }
+        try? FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try? d.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    /// Loads a saved prefix if it was made for this model file; returns the prefix tokens.
+    @discardableResult
+    public func loadPrefix(path: String) -> [Int32]? {
+        guard let d = FileManager.default.contents(atPath: path), d.count > 48 else { return nil }
+        return d.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> [Int32]? in
+            let key = prefixKey()
+            for (i, v) in key.enumerated() where raw.loadUnaligned(fromByteOffset: 8 * i, as: UInt64.self) != v { return nil }
+            let n = Int(raw.loadUnaligned(fromByteOffset: 40, as: UInt64.self))
+            let row = Dims.headDim * 2
+            guard n > 0, n < maxContext, d.count == 48 + 4 * n + 2 * Dims.layers * Dims.kvHeads * n * row else { return nil }
+            let toks = (0..<n).map { raw.loadUnaligned(fromByteOffset: 48 + 4 * $0, as: Int32.self) }
+            var src = 48 + 4 * n
+            waitIdle()
+            for buf in [kc, vc] {
+                for l in 0..<Dims.layers { for h in 0..<Dims.kvHeads {
+                    let off = ((l * Dims.kvHeads + h) * maxContext) * row
+                    (buf.contents() + off).copyMemory(from: raw.baseAddress! + src, byteCount: n * row)
+                    src += n * row
+                } }
+            }
+            cachedTokens = toks
+            return toks
+        }
     }
 
     /// Forget cached keys/values beyond the first `n` tokens (n = 0 clears the cache).

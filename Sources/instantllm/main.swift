@@ -19,7 +19,7 @@ struct Args {
                 let key = String(a.dropFirst(2))
                 if let eq = key.firstIndex(of: "=") {
                     options[String(key[..<eq])] = String(key[key.index(after: eq)...])
-                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap"].contains(key) {
+                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache"].contains(key) {
                     flags.insert(key)
                 } else if let v = it.next() {
                     options[key] = v
@@ -43,6 +43,7 @@ guard argv.count >= 2 else {
     """)
 }
 let args = Args(argv.dropFirst(2))
+let tMain = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
 
 func ms(_ a: UInt64, _ b: UInt64) -> Double { Double(b &- a) / 1e6 }
 
@@ -126,9 +127,9 @@ case "golden":
         var forced: [Int] = []
         if let gold = j["output_ids"] as? [Int] {
             var ctx = toks
-            for g in gold {
+            for g in gold + [-1] {   // predictions for every golden token and the final stop token
                 forced.append(Int(engine.generate(ctx, maxNew: 1).first ?? engine.lastTiming.stopToken))
-                ctx.append(Int32(g))
+                if g >= 0 { ctx.append(Int32(g)) }
             }
         }
         let o: [String: Any] = ["output_ids": out.map { Int($0) }, "stop_token": stop >= 0 ? Int(stop) : NSNull(), "input_ids": ids,
@@ -155,6 +156,7 @@ case "bench":
         engine = try Engine(modelPath: modelPath)
     } catch { fail("\(error)") }
     let variant = args.get("variant", engine.format.description)
+    if args.flags.contains("ignore-eos") { engine.eos = (-5, -5) }
     let prefixLen = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n").count
     func esc(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\t", with: "\\t")
@@ -195,16 +197,41 @@ case "run":
     let engine: Engine
     do {
         tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
-        engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"))
+        engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"), pinMemory: false)
     } catch { fail("\(error)") }
+    // System-prompt KV saved by an earlier run (keyed by model file and the exact prefix tokens).
+    let prefixToks = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n")
+    var hasher = Hasher()
+    hasher.combine(prefixToks)
+    let cacheDir = FileManager.default.homeDirectoryForCurrentUser.path + "/Library/Caches/instantllm"
+    let prefixFile = cacheDir + "/prefix-" + String(UInt64(bitPattern: Int64(prefixToks.reduce(Int64(1469598103934665603)) { ($0 ^ Int64($1)) &* 1099511628211 })), radix: 16) + ".kv"
+    _ = hasher
+    let hadPrefix = args.flags.contains("no-prefix-cache") ? false : (engine.loadPrefix(path: prefixFile) == prefixToks)
+    let tInit = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
     let ids = tok.encodeChat(system: system, user: prompt)
     let out = FileHandle.standardOutput
+    defer {
+        if args.flags.contains("verbose") {
+            // process start time from the kernel
+            var kp = kinfo_proc(); var sz = MemoryLayout<kinfo_proc>.size
+            var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+            sysctl(&mib, 4, &kp, &sz, nil, 0)
+            var tv = timeval(); gettimeofday(&tv, nil)
+            let sinceStart = Double(tv.tv_sec - kp.kp_proc.p_starttime.tv_sec) * 1e3 + Double(tv.tv_usec - kp.kp_proc.p_starttime.tv_usec) / 1e3
+            let t = engine.lastTiming
+            let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+            FileHandle.standardError.write(String(format: "process start -> now %.1f ms; main->init done %.1f ms; ttft %.1f ms; gen %.1f ms; prefill %d tokens\n",
+                sinceStart, ms(tMain, tInit), ms(tInit, t.tFirst), ms(t.tFirst, t.tEnd), t.prefillTokens).data(using: .utf8)!)
+            _ = now
+        }
+    }
     engine.generate(ids, maxNew: args.int("n-predict", 64)) { t in
         let b = tok.tokenBytes(t)
         if let base = b.baseAddress { out.write(Data(bytes: base, count: b.count)) }
         return true
     }
     out.write("\n".data(using: .utf8)!)
+    if !hadPrefix && !args.flags.contains("no-prefix-cache") { engine.savePrefix(path: prefixFile, tokens: prefixToks) }
 
 case "tokenize":
     do {

@@ -157,6 +157,9 @@ case "bench":
     } catch { fail("\(error)") }
     let variant = args.get("variant", engine.format.description)
     if args.flags.contains("ignore-eos") { engine.eos = (-5, -5) }
+    engine.chunk = args.int("chunk", engine.chunk)
+    engine.depth = args.int("depth", engine.depth)
+    engine.firstChunk = args.int("first-chunk", engine.firstChunk)
     let prefixLen = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n").count
     func esc(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\t", with: "\\t")
@@ -232,6 +235,30 @@ case "run":
     }
     out.write("\n".data(using: .utf8)!)
     if !hadPrefix && !args.flags.contains("no-prefix-cache") { engine.savePrefix(path: prefixFile, tokens: prefixToks) }
+
+case "batch":
+    // prompts file (one per line) -> JSONL {"prompt", "ids", "text"} with the model's greedy outputs.
+    let system = (try? String(contentsOfFile: args.get("system", "bench/system.txt"), encoding: .utf8)) ?? ""
+    let lines = ((try? String(contentsOfFile: args.get("prompts", "bench/prompts.txt"), encoding: .utf8)) ?? "")
+        .split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+    let tok: Tokenizer
+    let engine: Engine
+    do {
+        tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
+        engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"))
+    } catch { fail("\(error)") }
+    let outPath = args.get("out", "scratch/batch.jsonl")
+    FileManager.default.createFile(atPath: outPath, contents: nil)
+    let fh = FileHandle(forWritingAtPath: outPath)!
+    for p in lines {
+        let ids = tok.encodeChat(system: system, user: p)
+        let out = engine.generate(ids, maxNew: args.int("n-predict", 64))
+        let rec: [String: Any] = ["prompt": p, "ids": out.map { Int($0) }, "text": tok.decode(out), "stop": Int(engine.lastTiming.stopToken)]
+        fh.write(try! JSONSerialization.data(withJSONObject: rec))
+        fh.write("\n".data(using: .utf8)!)
+    }
+    fh.closeFile()
+    print("wrote \(lines.count) outputs to \(outPath)")
 
 case "tokenize":
     do {

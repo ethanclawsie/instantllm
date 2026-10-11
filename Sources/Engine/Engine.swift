@@ -24,6 +24,8 @@ public final class Engine {
     let pRmsRows, pGemmQKV, pGemmO, pGemmGU, pGemmDown: MTLComputePipelineState
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
+    var pG3: [Int: [MTLComputePipelineState]] = [:]  // tokens per tile (8, 16, 32) -> [qkv, o, gu, down]
+    public var useGemm3 = ProcessInfo.processInfo.environment["ILL_NO_G3"] == nil
     public var useGemm2 = true
     /// Prompts of at least this many new tokens use the GEMM prefill path.
     public var gemmThreshold = 2
@@ -113,6 +115,7 @@ public final class Engine {
         let opts = MTLCompileOptions()
         opts.preprocessorMacros = ["FMT": NSNumber(value: model.format.rawValue)]
         opts.mathMode = .fast
+        opts.languageVersion = .version4_0
         let tLib0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let lib = try dev.makeLibrary(source: shaderSource, options: opts)
         let tLib1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
@@ -146,6 +149,11 @@ public final class Engine {
         }
         for tf in 1...4 {
             pG2.append(try ["qkv", "o", "gu", "down"].map { try pipe("k_g2_\($0)_\(tf)") })
+        }
+        if model.format == .q4 {
+            for tt in [8, 16, 32] { pG3[tt] = try ["qkv", "o", "gu", "down"].map { try pipe("k_g3_\($0)_\(tt)") } }
+        } else {
+            useGemm3 = false
         }
     }
 
@@ -241,6 +249,22 @@ public final class Engine {
 
     private func encodeG2(_ e: MTLComputeCommandEncoder, _ kind: Int, a: MTLBuffer, wID: Int, sbID: Int, biasID: Int?,
                           outf: MTLBuffer, outh: MTLBuffer, kvOff: Int, rows: Int, n: Int) {
+        if useGemm3 {
+            let tt = n <= 8 ? 8 : (n <= 16 ? 16 : 32)
+            e.setComputePipelineState(pG3[tt]![kind])
+            e.setBuffer(a, offset: 0, index: 0)
+            w(e, wID, 1)
+            w(e, sbID, 2)
+            w(e, biasID ?? sbID, 3)
+            e.setBuffer(outf, offset: 0, index: 4)
+            e.setBuffer(outh, offset: 0, index: 5)
+            e.setBuffer(kc, offset: kvOff, index: 6)
+            e.setBuffer(vc, offset: kvOff, index: 7)
+            e.setBuffer(rope, offset: 0, index: 8)
+            e.setBuffer(state, offset: 0, index: 9)
+            grid(e, rows / 32, (n + tt - 1) / tt, 128)
+            return
+        }
         let tf = min(4, (n + 7) / 8)
         e.setComputePipelineState(pG2[tf - 1][kind])
         e.setBuffer(a, offset: 0, index: 0)
@@ -496,8 +520,13 @@ public final class Engine {
 
     /// Greedy generation. `onToken` gets each token as soon as the GPU produces it (return false to stop).
     /// The stop token is not returned. `logitsOut`, if given, receives the logits of the first token.
+    /// Decode steps per command buffer and how many steps the CPU encodes ahead.
+    public var chunk = 1
+    public var depth = 12
+    public var firstChunk = 0
+
     @discardableResult
-    public func generate(_ tokens: [Int32], maxNew: Int, firstChunk: Int = 2, chunk: Int = 8,
+    public func generate(_ tokens: [Int32], maxNew: Int,
                          logitsOut: UnsafeMutablePointer<Float>? = nil,
                          onToken: ((Int32) -> Bool)? = nil) -> [Int32] {
         var timing = Timing()
@@ -520,6 +549,10 @@ public final class Engine {
         s[0] = Int32(common); s[1] = Int32(n); s[2] = 0; s[3] = 0
         s[4] = Int32(maxContext); s[5] = Int32(maxNew); s[6] = eos.0; s[7] = eos.1
 
+        // Prefill gets its own command buffer, committed at once. Decode steps go in small command
+        // buffers kept `depth` steps ahead of the CPU: a token written by the GPU only becomes
+        // CPU-visible once later memory traffic or the end of its command buffer flushes it, so
+        // small buffers make every token (in particular the last one) visible within ~15 us.
         var (cb, e) = newEncoder()
         encodePrefill(e, n: n, writeLogits: logitsOut != nil)
         var encoded = 1
@@ -534,7 +567,7 @@ public final class Engine {
         var stopped = false
         var got = 0
         while !stopped && got < maxNew {
-            if encoded < maxNew && encoded - got <= chunk {
+            if encoded < maxNew && encoded - got <= depth {
                 (cb, e) = newEncoder()
                 let end = min(maxNew, encoded + chunk)
                 while encoded < end { encodeDecodeStep(e, writeLogits: false); encoded += 1 }

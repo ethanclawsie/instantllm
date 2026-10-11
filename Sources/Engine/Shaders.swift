@@ -4,7 +4,10 @@
 
 let shaderSource = #"""
 #include <metal_stdlib>
+#include <metal_tensor>
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
 using namespace metal;
+using namespace mpp::tensor_ops;
 
 #define H 896
 #define FF 4864
@@ -711,4 +714,123 @@ GEMM2_ALL(1)
 GEMM2_ALL(2)
 GEMM2_ALL(3)
 GEMM2_ALL(4)
+
+// ---------------------------------------------------------------------------------------------
+// Prefill GEMM v3: Neural Accelerators (MPP matmul2d). Each threadgroup computes 32 rows x TT
+// tokens; its NS simdgroups split K, each dequantizing its own 32 x 64 weight tile into private
+// threadgroup memory per step and running matmul2d with activations read from device memory.
+// Partial tiles are reduced through threadgroup memory (deterministic), then the epilogue runs.
+#if FMT == 2
+template<int K, int MODE, int TT, int NS>
+inline void gemm3_body(device half* X, device const uchar* W, device const half2* SB,
+                       device const float* bias, device float* outf, device half* outh,
+                       device half* kc, device half* vc, device const float2* rope, device const State* st,
+                       threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
+    constexpr int BK = 64;
+    const int n = st->n;
+    const uint r0 = tgp.x * 32;
+    const int t0 = tgp.y * TT;
+    threadgroup half* ws = Wsg + sg * 32 * BK;
+    auto tX = tensor(X + (ulong)t0 * K, dextents<int, 2>(K, TT), array<int, 2>({1, K}));
+    auto tW = tensor(ws, dextents<int, 2>(BK, 32), array<int, 2>({1, BK}));
+    constexpr auto desc = matmul2d_descriptor(TT, 32, BK, false, true, false, matmul2d_descriptor::mode::multiply_accumulate);
+    matmul2d<desc, execution_simdgroup> op;
+    auto cT = op.template get_destination_cooperative_tensor<decltype(tX), decltype(tW), float>();
+    for (int i = 0; i < cT.get_capacity(); i++) if (cT.is_valid_element(i)) cT[i] = 0.f;
+    for (uint step = sg; step < (uint)(K / BK); step += NS) {
+        const uint k0 = step * BK;
+        // lane = row: 64 weights = 32 bytes + one (scale, bias) pair
+        device const uint4* src = (device const uint4*)(W + (ulong)(r0 + lane) * (K / 2) + k0 / 2);
+        const float2 sb = float2(SB[(r0 + lane) * (K / 64) + k0 / 64]);
+        threadgroup half4* dst = (threadgroup half4*)(ws + lane * BK);
+        for (int q = 0; q < 2; ++q) {
+            const uint4 wv = src[q];
+            for (int u = 0; u < 4; ++u) {
+                const uint v = wv[u];
+                dst[q * 8 + 2 * u] = half4(sb.x * float4(float(v & 0xF), float((v >> 4) & 0xF), float((v >> 8) & 0xF), float((v >> 12) & 0xF)) + sb.y);
+                dst[q * 8 + 2 * u + 1] = half4(sb.x * float4(float((v >> 16) & 0xF), float((v >> 20) & 0xF), float((v >> 24) & 0xF), float(v >> 28)) + sb.y);
+            }
+        }
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+        auto a = tX.template slice<BK, TT>(k0, 0);
+        op.run(a, tW, cT);
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);   // Os aliases the weight tiles
+    auto tO = tensor(Os + sg * TT * 32, dextents<int, 2>(32, TT), array<int, 2>({1, 32}));
+    cT.store(tO);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    constexpr int NT = NS * 32;
+    if (MODE == 0) {
+        const int head = tgp.x >> 1;
+        for (int w = tid; w < TT * 16; w += NT) {
+            const int t = w / 16, i = w % 16;
+            if (t0 + t >= n) continue;
+            float a = bias[r0 + i], b = bias[r0 + i + 16];
+            for (int q = 0; q < NS; ++q) { a += Os[q * TT * 32 + t * 32 + i]; b += Os[q * TT * 32 + t * 32 + i + 16]; }
+            const int pos = st->pos + t0 + t;
+            const int d = (tgp.x & 1) * 16 + i;
+            if (head < NH + NKV) {
+                const float2 cs = rope[pos * 32 + d];
+                const float a2 = a * cs.x - b * cs.y;
+                const float b2 = b * cs.x + a * cs.y;
+                a = a2; b = b2;
+            }
+            if (head < NH) {
+                outf[(t0 + t) * H + head * HD + d] = a;
+                outf[(t0 + t) * H + head * HD + d + 32] = b;
+            } else if (head < NH + NKV) {
+                device half* k = kc + ((ulong)(head - NH) * st->maxctx + pos) * HD;
+                k[d] = half(a); k[d + 32] = half(b);
+            } else {
+                device half* v = vc + ((ulong)(head - NH - NKV) * st->maxctx + pos) * HD;
+                v[d] = half(a); v[d + 32] = half(b);
+            }
+        }
+    } else if (MODE == 1) {
+        for (int w = tid; w < TT * 32; w += NT) {
+            const int t = w / 32, r = w % 32;
+            if (t0 + t >= n) continue;
+            float v = 0.f;
+            for (int q = 0; q < NS; ++q) v += Os[q * TT * 32 + w];
+            outf[(t0 + t) * H + r0 + r] += v;
+        }
+    } else {
+        for (int w = tid; w < TT * 8; w += NT) {
+            const int t = w / 8, b = w % 8;
+            if (t0 + t >= n) continue;
+            float g0 = 0.f, g1 = 0.f, u0 = 0.f, u1 = 0.f;
+            for (int q = 0; q < NS; ++q) {
+                threadgroup const float* o = Os + q * TT * 32 + t * 32 + 4 * b;
+                g0 += o[0]; g1 += o[1]; u0 += o[2]; u1 += o[3];
+            }
+            const int u = (r0 / 4 + b) * 2;
+            outh[(t0 + t) * FF + u] = half(g0 / (1.f + exp(-g0)) * u0);
+            outh[(t0 + t) * FF + u + 1] = half(g1 / (1.f + exp(-g1)) * u1);
+        }
+    }
+}
+
+#define GEMM3(NAME, K, MODE, TT, NS) \
+kernel void NAME(device half* X [[buffer(0)]], device const uchar* W [[buffer(1)]], \
+                 device const half2* SB [[buffer(2)]], device const float* bias [[buffer(3)]], \
+                 device float* outf [[buffer(4)]], device half* outh [[buffer(5)]], \
+                 device half* kc [[buffer(6)]], device half* vc [[buffer(7)]], \
+                 device const float2* rope [[buffer(8)]], device const State* st [[buffer(9)]], \
+                 uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]], \
+                 uint lane [[thread_index_in_simdgroup]], uint sg [[simdgroup_index_in_threadgroup]]) { \
+    if (st->done || (int)(tgp.y * TT) >= st->n) return; \
+    constexpr int WB = NS * 32 * 64 * 2, OB = NS * TT * 32 * 4; \
+    threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
+    gemm3_body<K, MODE, TT, NS>(X, W, SB, bias, outf, outh, kc, vc, rope, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
+}
+#define GEMM3_ALL(TT) \
+GEMM3(k_g3_qkv_##TT, H, 0, TT, 4) \
+GEMM3(k_g3_o_##TT, H, 1, TT, 4) \
+GEMM3(k_g3_gu_##TT, H, 2, TT, 4) \
+GEMM3(k_g3_down_##TT, FF, 1, TT, 4)
+GEMM3_ALL(8)
+GEMM3_ALL(16)
+GEMM3_ALL(32)
+#endif
 """#

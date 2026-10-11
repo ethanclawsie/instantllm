@@ -122,6 +122,11 @@ public enum Converter {
             w.add(id, m.packed.withUnsafeBufferPointer { Data(buffer: $0) })
             w.add(sbID, m.sb.withUnsafeBufferPointer { Data(buffer: $0) })
         }
+        func emitQ8(_ id: Int, _ sbID: Int, _ m: [Float], rows: Int, cols: Int) {
+            let (codes, scales) = quantizeQ8(m, rows: rows, cols: cols)
+            w.add(id, codes.withUnsafeBufferPointer { Data(buffer: $0) })
+            w.add(sbID, scales.withUnsafeBufferPointer { Data(buffer: $0) })
+        }
         func emitF16(_ id: Int, _ sbID: Int, _ m: [Float]) {
             w.add(id, f16Data(m))
             w.add(sbID, Data())
@@ -136,7 +141,9 @@ public enum Converter {
             return
         }
         let t0 = Date()
-        if format == .q4 {
+        if format == .q8 {
+            emitQ8(TensorID.embed, TensorID.embedSB, try st.floats("model.embed_tokens.weight").data, rows: Dims.vocab, cols: H)
+        } else if format == .q4 {
             let e = try q4("model.embed_tokens.weight")
             emitQ4(TensorID.embed, TensorID.embedSB, e)
             if sketch {
@@ -163,7 +170,14 @@ public enum Converter {
             let bias = try vec(p + "self_attn.q_proj.bias") + vec(p + "self_attn.k_proj.bias") + vec(p + "self_attn.v_proj.bias")
             w.add(TensorID.layer(l, TensorID.bqkv), f32Data(order.map { bias[$0] }))
             let names = ["self_attn.q_proj.weight", "self_attn.k_proj.weight", "self_attn.v_proj.weight"].map { p + $0 }
-            if format == .q4 {
+            if format == .q8 {
+                let qkv = try names.flatMap { try st.floats($0).data }
+                emitQ8(TensorID.layer(l, TensorID.wqkv), TensorID.layer(l, TensorID.wqkvSB), reorderRows(qkv, cols: H, order: order), rows: Dims.qkvRows, cols: H)
+                emitQ8(TensorID.layer(l, TensorID.wo), TensorID.layer(l, TensorID.woSB), try st.floats(p + "self_attn.o_proj.weight").data, rows: H, cols: H)
+                let gu = try st.floats(p + "mlp.gate_proj.weight").data + st.floats(p + "mlp.up_proj.weight").data
+                emitQ8(TensorID.layer(l, TensorID.wgu), TensorID.layer(l, TensorID.wguSB), reorderRows(gu, cols: H, order: guOrder), rows: 2 * F, cols: H)
+                emitQ8(TensorID.layer(l, TensorID.wd), TensorID.layer(l, TensorID.wdSB), try st.floats(p + "mlp.down_proj.weight").data, rows: H, cols: F)
+            } else if format == .q4 {
                 let qkv = try q4(names[0]) + q4(names[1]) + q4(names[2])
                 emitQ4(TensorID.layer(l, TensorID.wqkv), TensorID.layer(l, TensorID.wqkvSB), qkv.reordered(order))
                 emitQ4(TensorID.layer(l, TensorID.wo), TensorID.layer(l, TensorID.woSB), try q4(p + "self_attn.o_proj.weight"))
@@ -236,6 +250,36 @@ public enum Converter {
     }
 
     static func f32Data(_ v: [Float]) -> Data { v.withUnsafeBufferPointer { Data(buffer: $0) } }
+
+    /// Symmetric 8-bit, group 32 along K, f16 scale: w ~ s * q, q in -127...127 (8.5 bits/weight).
+    /// The scale is the f16 value nearest amax/127 that keeps every code in range.
+    static func quantizeQ8(_ m: [Float], rows: Int, cols: Int) -> ([Int8], [Float16]) {
+        let groups = cols / 32
+        var codes = [Int8](repeating: 0, count: rows * cols)
+        var scales = [Float16](repeating: 0, count: rows * groups)
+        m.withUnsafeBufferPointer { src in
+            codes.withUnsafeMutableBufferPointer { cp in
+                scales.withUnsafeMutableBufferPointer { sp in
+                    DispatchQueue.concurrentPerform(iterations: (rows + 63) / 64) { ci in
+                        for r in (ci * 64)..<min(rows, (ci + 1) * 64) {
+                            for g in 0..<groups {
+                                let base = r * cols + g * 32
+                                var amax: Float = 0
+                                for i in 0..<32 { amax = max(amax, abs(src[base + i])) }
+                                var sh = Float16(amax / 127)
+                                if Float(sh) * 127 < amax { sh = Float16(bitPattern: sh.bitPattern &+ 1) }
+                                let s = Float(sh)
+                                sp[r * groups + g] = sh
+                                let inv: Float = s > 0 ? 1 / s : 0
+                                for i in 0..<32 { cp[base + i] = Int8(max(-127, min(127, (src[base + i] * inv).rounded()))) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return (codes, scales)
+    }
 
     static func f16Data(_ v: [Float]) -> Data {
         var h = [Float16](repeating: 0, count: v.count)

@@ -46,6 +46,8 @@ public final class Engine {
     var inflight: [MTLCommandBuffer] = []
     var library: MTLLibrary?
     var q4a: Bool { format == .q4a }
+    /// q4 and q8 share the T-templated decode/verify kernels.
+    var tFamily: Bool { format != .q4a }
     var residency: MTLResidencySet?
 
     /// Tokens whose keys/values are valid in the cache at positions 0..<count.
@@ -162,7 +164,7 @@ public final class Engine {
         } else {
             useSketchHead = false
         }
-        if model.format == .q4 {
+        if model.format != .q4a {
             pCommitSpec = try pipe("k_commit_spec")
             for t in 2...4 { pSpec[t] = try ["k_attn_in_", "k_o_proj_", "k_mlp_in_", "k_mlp_out_", "k_lm_head_"].map { try pipe($0 + "\(t)") } }
         }
@@ -188,7 +190,7 @@ public final class Engine {
                 pG2.append(try ["qkv", "o", "gu", "down"].map { try pipe("k_g2_\($0)_\(tf)") })
             }
         }
-        if model.format == .q4 || model.format == .q4a {
+        if model.format != .f16 {
             for tt in [8, 16, 24, 32] { pG3[tt] = try ["qkv", "o", "gu", "down"].map { try pipe("k_g3_\($0)_\(tt)") } }
         } else {
             useGemm3 = false
@@ -224,7 +226,7 @@ public final class Engine {
         e.setBuffer(vc, offset: kvOff, index: 7)
         e.setBuffer(rope, offset: 0, index: 8)
         e.setBuffer(state, offset: 0, index: 9)
-        if q4a { grid(e, 36, n, 64) } else if format == .q4 { grid(e, 36, n, 128) } else { grid(e, 36, n) }
+        if q4a { grid(e, 36, n, 64) } else if tFamily { grid(e, 36, n, 128) } else { grid(e, 36, n) }
         } else if part == 1 {
         e.setComputePipelineState(pAttention)
         e.setBuffer(q, offset: 0, index: 0)
@@ -242,7 +244,7 @@ public final class Engine {
         e.setBuffer(attn, offset: 0, index: 2)
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        if q4a { grid(e, 28, n, 64) } else if format == .q4 { grid(e, 56, n, 64) } else { grid(e, Dims.hidden / 32, n) }
+        if q4a { grid(e, 28, n, 64) } else if tFamily { grid(e, 56, n, 64) } else { grid(e, Dims.hidden / 32, n) }
         } else if part == 3 {
         e.setComputePipelineState(pMlpIn)
         w(e, TensorID.layer(l, TensorID.wgu), 0)
@@ -251,7 +253,7 @@ public final class Engine {
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(hbuf, offset: 0, index: 4)
         e.setBuffer(state, offset: 0, index: 5)
-        if q4a { grid(e, 304, n, 64) } else if format == .q4 { grid(e, 608, n, 64) } else { grid(e, Dims.ff / 16, n) }
+        if q4a { grid(e, 304, n, 64) } else if tFamily { grid(e, 608, n, 64) } else { grid(e, Dims.ff / 16, n) }
         } else {
         e.setComputePipelineState(pMlpOut)
         w(e, TensorID.layer(l, TensorID.wd), 0)
@@ -259,7 +261,7 @@ public final class Engine {
         e.setBuffer(hbuf, offset: 0, index: 2)
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        if q4a { grid(e, 56, n, 128) } else if format == .q4 { grid(e, 56, n, 64) } else { grid(e, Dims.hidden / 32, n) }
+        if q4a { grid(e, 56, n, 128) } else if tFamily { grid(e, 56, n, 64) } else { grid(e, Dims.hidden / 32, n) }
         }
     }
 
@@ -305,7 +307,7 @@ public final class Engine {
         e.setBuffer(attn, offset: rowF, index: 2)
         e.setBuffer(x, offset: rowF, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        if q4a { grid(e, 28, 1, 64) } else if format == .q4 { grid(e, 56, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
+        if q4a { grid(e, 28, 1, 64) } else if tFamily { grid(e, 56, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
         e.setComputePipelineState(pMlpIn)
         w(e, TensorID.layer(l, TensorID.wgu), 0)
         w(e, TensorID.layer(l, TensorID.wguSB), 1)
@@ -313,14 +315,14 @@ public final class Engine {
         e.setBuffer(x, offset: rowF, index: 3)
         e.setBuffer(hbuf, offset: 0, index: 4)
         e.setBuffer(state, offset: 0, index: 5)
-        if q4a { grid(e, 304, 1, 64) } else if format == .q4 { grid(e, 608, 1, 64) } else { grid(e, Dims.ff / 16, 1) }
+        if q4a { grid(e, 304, 1, 64) } else if tFamily { grid(e, 608, 1, 64) } else { grid(e, Dims.ff / 16, 1) }
         e.setComputePipelineState(pMlpOut)
         w(e, TensorID.layer(l, TensorID.wd), 0)
         w(e, TensorID.layer(l, TensorID.wdSB), 1)
         e.setBuffer(hbuf, offset: 0, index: 2)
         e.setBuffer(x, offset: rowF, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        if q4a { grid(e, 56, 1, 128) } else if format == .q4 { grid(e, 56, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
+        if q4a { grid(e, 56, 1, 128) } else if tFamily { grid(e, 56, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
     }
 
     private func encodePrefillLayer2(_ e: MTLComputeCommandEncoder, _ l: Int, n: Int) {
@@ -390,7 +392,7 @@ public final class Engine {
         e.setBuffer(logits, offset: 0, index: 7)
         var wl: Int32 = writeLogits ? 1 : 0
         e.setBytes(&wl, length: 4, index: 8)
-        grid(e, Dims.vocab / 32, 1, q4a ? 64 : (format == .q4 ? 128 : 256))
+        grid(e, Dims.vocab / 32, 1, q4a ? 64 : (tFamily ? 128 : 256))
     }
 
     private func encodeCommit(_ e: MTLComputeCommandEncoder) {
@@ -549,7 +551,7 @@ public final class Engine {
         }
         r.append(("decode step (1 token)", gpuTime(n: 1, pos: pos + n) { e in self.encodeDecodeStep(e, writeLogits: false) }))
         r.append(("decode 16 steps / 16", gpuTime(n: 1, pos: pos + n, iters: 5) { e in for _ in 0..<16 { self.encodeDecodeStep(e, writeLogits: false) } } / 16))
-        if format == .q4 {
+        if tFamily {
             let s0 = state.contents().assumingMemoryBound(to: Int32.self)
             var variants: [(String, Int, [MTLComputePipelineState], Int)] = [("T=1", 1, [pAttnIn, pOProj, pMlpIn, pMlpOut, pLMHead], 8)]
             for T in 2...4 { if let p = pSpec[T] { variants.append(("T=\(T)", T, p, Engine.specRows(T))) } }

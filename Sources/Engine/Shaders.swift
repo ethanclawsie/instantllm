@@ -424,6 +424,26 @@ static inline float reduce4(thread float* v, ushort lane) {
 template<int R>
 static inline float reduceR(thread float* v, ushort lane) { return R == 8 ? reduce8(v, lane) : reduce4(v, lane); }
 
+// Packs a lane's 32 inputs as 16 fp16 pairs in the order the format's dot product consumes them:
+// q4 pairs nibbles k and k+4 of each 8-weight word, q8/f16 take consecutive pairs.
+static inline void pack_pairs(thread const float* xv, thread uint* xh, thread float& X) {
+    X = 0.f;
+#if FMT == 2
+    for (int u = 0; u < 4; u++)
+        for (int k = 0; k < 4; k++) {
+            const half2 h = half2(half(xv[8 * u + k]), half(xv[8 * u + k + 4]));
+            xh[4 * u + k] = as_type<uint>(h);
+            X += float(h.x) + float(h.y);
+        }
+#else
+    for (int i = 0; i < 16; i++) {
+        const half2 h = half2(half(xv[2 * i]), half(xv[2 * i + 1]));
+        xh[i] = as_type<uint>(h);
+        X += float(h.x) + float(h.y);
+    }
+#endif
+}
+
 // Lane's 32-column chunk of RMSNorm(x) * w as fp16; X = sum of the rounded values. Lanes >= 28: zeros.
 static inline void q4_chunk_norm(device const float* x, device const float* w, ushort lane, thread uint* xh, thread float& X) {
     float xv[32];
@@ -434,54 +454,30 @@ static inline void q4_chunk_norm(device const float* x, device const float* w, u
     }
     ss = simd_sum(ss);
     const float scale = rsqrt(ss / float(H) + EPS);
-    X = 0.f;
     if (lane < 28) {
         device const float4* ws = (device const float4*)(w + lane * 32);
         for (int i = 0; i < 8; i++) {
             const float4 t = float4(xv[4*i], xv[4*i+1], xv[4*i+2], xv[4*i+3]) * scale * ws[i];
-            const half4 h = half4(t);
-            xh[2*i] = as_type<uint>(h.xy); xh[2*i+1] = as_type<uint>(h.zw);
-            X += float(h.x) + float(h.y) + float(h.z) + float(h.w);
+            xv[4*i] = t.x; xv[4*i+1] = t.y; xv[4*i+2] = t.z; xv[4*i+3] = t.w;
         }
+        pack_pairs(xv, xh, X);
     } else {
+        X = 0.f;
         for (int i = 0; i < 16; i++) xh[i] = 0u;
     }
 }
 
 static inline void q4_chunk_plain(device const float* x, ushort lane, thread uint* xh, thread float& X) {
-    X = 0.f;
     if (lane < 28) {
+        float xv[32];
         device const float4* xs = (device const float4*)(x + lane * 32);
-        for (int i = 0; i < 8; i++) {
-            const half4 h = half4(xs[i]);
-            xh[2*i] = as_type<uint>(h.xy); xh[2*i+1] = as_type<uint>(h.zw);
-            X += float(h.x) + float(h.y) + float(h.z) + float(h.w);
-        }
+        for (int i = 0; i < 8; i++) { const float4 t = xs[i]; xv[4*i] = t.x; xv[4*i+1] = t.y; xv[4*i+2] = t.z; xv[4*i+3] = t.w; }
+        pack_pairs(xv, xh, X);
     } else {
+        X = 0.f;
         for (int i = 0; i < 16; i++) xh[i] = 0u;
     }
 }
-
-// R rows (from r0) of a K = 896 matrix for T tokens: lane-local partials v[t][r] before the reduction.
-template<int T, int R>
-static inline void q4_rows(device const uchar* W, device const half2* SB, uint r0, thread const uint (&xh)[T][16],
-                           thread const float* X, ushort lane, thread float (&v)[T][R]) {
-    if (lane >= 28) { for (int t = 0; t < T; t++) for (int r = 0; r < R; r++) v[t][r] = 0.f; return; }
-    for (int rb = 0; rb < R; rb += 4) {
-        uint4 w[4];
-        float2 sb[4];
-        for (int b = 0; b < 4; b++) {
-            w[b] = *((device const uint4*)(W + (ulong)(r0 + rb + b) * (H / 2) + lane * 16));
-            sb[b] = float2(SB[(r0 + rb + b) * (H / 64) + (lane >> 1)]);
-        }
-        for (int b = 0; b < 4; b++) {
-            float d[T];
-            q4_dot32<T>(w[b], xh, d);
-            for (int t = 0; t < T; t++) v[t][rb + b] = sb[b].x * (16.f * (d[t] - X[t])) + sb[b].y * X[t];
-        }
-    }
-}
-
 
 #if FMT == 0
 // f16: 32 weights (64 bytes) of one row chunk, T dot products with the fp16 inputs.
@@ -573,18 +569,23 @@ static inline void q_chunk_down(device const char* W, device const half2* SB, ui
 // 32 nibbles unpacked once, T dot products with the fp16 inputs (in-order fp32 accumulation).
 template<int T>
 static inline void q4_dot32(uint4 w, thread const uint (&xh)[T][16], thread float* d) {
+    // xh holds the inputs as fp16 pairs in nibble order: pair 4u+k = (x[8u+k], x[8u+k+4]). A nibble
+    // pair unpacks exactly to fp16 via (1024 + n) - 1024; per token, 8 weights = 4 half2 FMAs whose
+    // partial sum goes to fp32 (8-term fp16 sums keep the rounding small).
     for (int t = 0; t < T; t++) d[t] = 0.f;
+    const half2 k1024 = half2(1024.h);
     for (int u = 0; u < 4; ++u) {
         const uint v = w[u];
-        const half2 p04 = as_type<half2>(((v << 6) & 0x03C003C0u) | 0x3C003C00u);
-        const half2 p15 = as_type<half2>(((v << 2) & 0x03C003C0u) | 0x3C003C00u);
-        const half2 p26 = as_type<half2>(((v >> 2) & 0x03C003C0u) | 0x3C003C00u);
-        const half2 p37 = as_type<half2>(((v >> 6) & 0x03C003C0u) | 0x3C003C00u);
-        const float f[8] = {float(p04.x), float(p15.x), float(p26.x), float(p37.x), float(p04.y), float(p15.y), float(p26.y), float(p37.y)};
+        const half2 n04 = as_type<half2>((v & 0x000F000Fu) | 0x64006400u) - k1024;
+        const half2 n15 = as_type<half2>(((v >> 4) & 0x000F000Fu) | 0x64006400u) - k1024;
+        const half2 n26 = as_type<half2>(((v >> 8) & 0x000F000Fu) | 0x64006400u) - k1024;
+        const half2 n37 = as_type<half2>(((v >> 12) & 0x000F000Fu) | 0x64006400u) - k1024;
         for (int t = 0; t < T; t++) {
-            float a = d[t];
-            for (int k = 0; k < 4; k++) { const float2 xx = float2(as_type<half2>(xh[t][4 * u + k])); a = fma(f[2 * k], xx.x, a); a = fma(f[2 * k + 1], xx.y, a); }
-            d[t] = a;
+            half2 a = n04 * as_type<half2>(xh[t][4 * u]);
+            a = fma(n15, as_type<half2>(xh[t][4 * u + 1]), a);
+            a = fma(n26, as_type<half2>(xh[t][4 * u + 2]), a);
+            a = fma(n37, as_type<half2>(xh[t][4 * u + 3]), a);
+            d[t] += float(a.x) + float(a.y);
         }
     }
 }
@@ -604,7 +605,7 @@ static inline void q_rows(device const uchar* W, device const half2* SB, uint r0
         for (int b = 0; b < 4; b++) {
             float d[T];
             q4_dot32<T>(w[b], xh, d);
-            for (int t = 0; t < T; t++) v[t][rb + b] = sb[b].x * (16.f * (d[t] - X[t])) + sb[b].y * X[t];
+            for (int t = 0; t < T; t++) v[t][rb + b] = sb[b].x * d[t] + sb[b].y * X[t];
         }
     }
 }
@@ -617,7 +618,7 @@ static inline void q_chunk_down(device const uchar* W, device const half2* SB, u
     const float2 sb = float2(SB[row * (FF / 64) + (c >> 1)]);
     float d[T];
     q4_dot32<T>(w, xh, d);
-    for (int t = 0; t < T; t++) out[t] = sb.x * (16.f * (d[t] - X[t])) + sb.y * X[t];
+    for (int t = 0; t < T; t++) out[t] = sb.x * d[t] + sb.y * X[t];
 }
 #endif
 
@@ -732,13 +733,10 @@ kernel void k_mlp_out_T(device const wtype* W [[buffer(0)]], device const half2*
         uint xh[T][16];
         float X[T];
         for (int t = 0; t < T; t++) {
-            X[t] = 0.f;
+            float xv[32];
             device const float4* xs = (device const float4*)(hbuf + t * FF + c * 32);
-            for (int i = 0; i < 8; i++) {
-                const half4 h = half4(xs[i]);
-                xh[t][2*i] = as_type<uint>(h.xy); xh[t][2*i+1] = as_type<uint>(h.zw);
-                X[t] += float(h.x) + float(h.y) + float(h.z) + float(h.w);
-            }
+            for (int i = 0; i < 8; i++) { const float4 v4 = xs[i]; xv[4*i] = v4.x; xv[4*i+1] = v4.y; xv[4*i+2] = v4.z; xv[4*i+3] = v4.w; }
+            pack_pairs(xv, xh[t], X[t]);
         }
         for (int b = 0; b < R; b++) {
             float o[T];
@@ -827,7 +825,8 @@ kernel void k_lmh_sketch_T(device const uchar* HI [[buffer(0)]], device const ha
         uint xh[16];
         q4_chunk_norm(xr + t * H, wnorm, lane, xh, X[t]);
         float xf[32];
-        for (int i = 0; i < 16; i++) { const float2 f2 = float2(as_type<half2>(xh[i])); xf[2 * i] = f2.x; xf[2 * i + 1] = f2.y; }
+        for (int u = 0; u < 4; u++)
+            for (int k = 0; k < 4; k++) { const float2 f2 = float2(as_type<half2>(xh[4 * u + k])); xf[8 * u + k] = f2.x; xf[8 * u + k + 4] = f2.y; }
         float xx = 0.f;
         for (int i = 0; i < 32; i++) xx += xf[i] * xf[i];
         XX[t] = xx;

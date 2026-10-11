@@ -76,7 +76,7 @@ func serve(args: Args) -> Never {
                             copyWeights: !args.flags.contains("mmap"))
     } catch { fail("serve: \(error)") }
 
-    engine.specT = args.int("spec", 2)
+    engine.specT = args.int("spec", engine.defaultSpecT)
     if engine.specT > 1 && (try? engine.loadDraftTable(path: resolveAsset(args.options["draft-table"], env: "INSTANTLLM_DRAFT", name: "ngram.bin"))) == nil { engine.specT = 1 }
     // Warm everything once: pipelines, the system prefix in the KV cache, page-ins.
     _ = engine.generate(tok.encodeChat(system: defaultSystem, user: "list files"), maxNew: 4)

@@ -158,7 +158,7 @@ case "bench":
     let variant = args.get("variant", engine.format.description)
     if args.flags.contains("ignore-eos") { engine.eos = (-5, -5) }
     engine.chunk = args.int("chunk", engine.chunk)
-    engine.specT = args.int("spec", 2)
+    engine.specT = args.int("spec", engine.defaultSpecT)
     if engine.specT > 1 {
         if (try? engine.loadDraftTable(path: args.get("draft-table", resolveAsset(nil, env: "INSTANTLLM_DRAFT", name: "ngram.bin")))) == nil { engine.specT = 1 }
     }
@@ -231,7 +231,7 @@ case "run":
         tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
         engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"), pinMemory: false)
     } catch { fail("\(error)") }
-    engine.specT = args.int("spec", 2)
+    engine.specT = args.int("spec", engine.defaultSpecT)
     if engine.specT > 1 && (try? engine.loadDraftTable(path: args.get("draft-table", resolveAsset(nil, env: "INSTANTLLM_DRAFT", name: "ngram.bin")))) == nil { engine.specT = 1 }
     // System-prompt KV saved by an earlier run (keyed by model file and the exact prefix tokens).
     let prefixToks = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n")

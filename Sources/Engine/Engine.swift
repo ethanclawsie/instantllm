@@ -23,8 +23,6 @@ public final class Engine {
     let drafts, promptTail: MTLBuffer
     var ngram: MTLBuffer
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
-    let pRmsRows: MTLComputePipelineState
-    var pGemmQKV, pGemmO, pGemmGU, pGemmDown: MTLComputePipelineState?
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
     var pCommitSpec: MTLComputePipelineState?
     var pLmhSketch: [Int: MTLComputePipelineState] = [:], pLmhExact: [Int: MTLComputePipelineState] = [:]
@@ -43,7 +41,6 @@ public final class Engine {
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
     var pG3: [Int: [MTLComputePipelineState]] = [:]  // tokens per tile (8, 16, 32) -> [qkv, o, gu, down]
     public var useGemm3 = ProcessInfo.processInfo.environment["ILL_NO_G3"] == nil
-    public var useGemm2 = true
     /// Prompts of at least this many new tokens use the GEMM prefill path.
     public var gemmThreshold = 2
     var inflight: [MTLCommandBuffer] = []
@@ -156,13 +153,6 @@ public final class Engine {
         pMlpIn = try pipe("k_mlp_in")
         pMlpOut = try pipe("k_mlp_out")
         pLMHead = try pipe("k_lm_head")
-        pRmsRows = try pipe("k_rmsnorm_rows")
-        if model.format != .q4a {
-            pGemmQKV = try pipe("k_gemm_qkv")
-            pGemmO = try pipe("k_gemm_o")
-            pGemmGU = try pipe("k_gemm_gu")
-            pGemmDown = try pipe("k_gemm_down")
-        }
         pRmsRowsH = try pipe("k_rmsnorm_rows_h")
         pF32ToH = try pipe("k_f32_to_h")
         pNoop = try pipe("k_noop")
@@ -273,30 +263,6 @@ public final class Engine {
         }
     }
 
-    private func encodeGemm(_ e: MTLComputeCommandEncoder, _ p: MTLComputePipelineState, a: MTLBuffer, wID: Int, sbID: Int,
-                            biasID: Int?, out: MTLBuffer, kvOff: Int, rowsPerTG: Int, rows: Int, n: Int) {
-        e.setComputePipelineState(p)
-        e.setBuffer(a, offset: 0, index: 0)
-        w(e, wID, 1)
-        w(e, sbID, 2)
-        w(e, biasID ?? sbID, 3)
-        e.setBuffer(out, offset: 0, index: 4)
-        e.setBuffer(kc, offset: kvOff, index: 5)
-        e.setBuffer(vc, offset: kvOff, index: 6)
-        e.setBuffer(rope, offset: 0, index: 7)
-        e.setBuffer(state, offset: 0, index: 8)
-        grid(e, rows / rowsPerTG, (n + 31) / 32, 128)
-    }
-
-    private func encodeRmsRows(_ e: MTLComputeCommandEncoder, normID: Int, n: Int) {
-        e.setComputePipelineState(pRmsRows)
-        e.setBuffer(x, offset: 0, index: 0)
-        w(e, normID, 1)
-        e.setBuffer(xn, offset: 0, index: 2)
-        e.setBuffer(state, offset: 0, index: 3)
-        grid(e, n, 1)
-    }
-
     private func encodeG2(_ e: MTLComputeCommandEncoder, _ kind: Int, a: MTLBuffer, wID: Int, sbID: Int, biasID: Int?,
                           outf: MTLBuffer, outh: MTLBuffer, kvOff: Int, rows: Int, n: Int) {
         if useGemm3 {
@@ -389,30 +355,6 @@ public final class Engine {
         grid(e, n, 1)
         encodeG2(e, 2, a: xnh, wID: L(TensorID.wgu), sbID: L(TensorID.wguSB), biasID: nil, outf: x, outh: hh, kvOff: kvOff, rows: 2 * Dims.ff, n: n)
         encodeG2(e, 3, a: hh, wID: L(TensorID.wd), sbID: L(TensorID.wdSB), biasID: nil, outf: x, outh: hh, kvOff: kvOff, rows: Dims.hidden, n: n)
-    }
-
-    private func encodePrefillLayer(_ e: MTLComputeCommandEncoder, _ l: Int, n: Int) {
-        let kvOff = l * Dims.kvHeads * maxContext * Dims.headDim * 2
-        let L = { TensorID.layer(l, $0) }
-        encodeRmsRows(e, normID: L(TensorID.attnNorm), n: n)
-        encodeGemm(e, pGemmQKV!, a: xn, wID: L(TensorID.wqkv), sbID: L(TensorID.wqkvSB), biasID: L(TensorID.bqkv),
-                   out: q, kvOff: kvOff, rowsPerTG: 32, rows: Dims.qkvRows, n: n)
-        e.setComputePipelineState(pAttention)
-        e.setBuffer(q, offset: 0, index: 0)
-        e.setBuffer(kc, offset: kvOff, index: 1)
-        e.setBuffer(vc, offset: kvOff, index: 2)
-        e.setBuffer(attn, offset: 0, index: 3)
-        e.setBuffer(state, offset: 0, index: 4)
-        var toff: Int32 = 0
-        e.setBytes(&toff, length: 4, index: 5)
-        grid(e, Dims.heads, n)
-        encodeGemm(e, pGemmO!, a: attn, wID: L(TensorID.wo), sbID: L(TensorID.woSB), biasID: nil,
-                   out: x, kvOff: kvOff, rowsPerTG: 32, rows: Dims.hidden, n: n)
-        encodeRmsRows(e, normID: L(TensorID.mlpNorm), n: n)
-        encodeGemm(e, pGemmGU!, a: xn, wID: L(TensorID.wgu), sbID: L(TensorID.wguSB), biasID: nil,
-                   out: hbuf, kvOff: kvOff, rowsPerTG: 64, rows: 2 * Dims.ff, n: n)
-        encodeGemm(e, pGemmDown!, a: hbuf, wID: L(TensorID.wd), sbID: L(TensorID.wdSB), biasID: nil,
-                   out: x, kvOff: kvOff, rowsPerTG: 32, rows: Dims.hidden, n: n)
     }
 
     /// Sketch + threshold + exact-candidates lm_head over the last T rows of x (writes the same partials).
@@ -540,7 +482,7 @@ public final class Engine {
         e.setBuffer(state, offset: 0, index: 4)
         grid(e, n, 1)
         for l in 0..<Dims.layers {
-            if n >= gemmThreshold { if useGemm2 { encodePrefillLayer2(e, l, n: n) } else { encodePrefillLayer(e, l, n: n) } } else { encodeLayer(e, l, n: n) }
+            if n >= gemmThreshold { encodePrefillLayer2(e, l, n: n) } else { encodeLayer(e, l, n: n) }
         }
         encodeLMHead(e, writeLogits: writeLogits)
         if specActive { encodeCommitSpec(e) } else { encodeCommit(e) }

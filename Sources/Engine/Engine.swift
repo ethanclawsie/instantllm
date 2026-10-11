@@ -28,6 +28,8 @@ public final class Engine {
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
     var pCommitSpec: MTLComputePipelineState?
     var pSpec: [Int: [MTLComputePipelineState]] = [:]   // T -> [attn_in, o_proj, mlp_in, mlp_out, lm_head]
+    var pSpecVar: [String: [MTLComputePipelineState]] = [:]   // exploration variants ("2r4", "3r8")
+    static func specRows(_ T: Int) -> Int { 8 }
     /// Rows per speculative pass (1 = off): the last token plus up to specT-1 n-gram drafts.
     public var specT = 1
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
@@ -440,8 +442,9 @@ public final class Engine {
     }
 
     /// One speculative pass over T rows (last token + drafts): every weight read once for all rows.
-    private func encodeSpecPass(_ e: MTLComputeCommandEncoder, T: Int) {
-        let p = pSpec[T]!
+    private func encodeSpecPass(_ e: MTLComputeCommandEncoder, T: Int, p pv: [MTLComputePipelineState]? = nil, R rv: Int? = nil) {
+        let p = pv ?? pSpec[T]!
+        let R = rv ?? Engine.specRows(T)
         for l in 0..<Dims.layers {
             let kvOff = l * Dims.kvHeads * maxContext * Dims.headDim * 2
             let L = { TensorID.layer(l, $0) }
@@ -450,7 +453,7 @@ public final class Engine {
             e.setBuffer(x, offset: 0, index: 4); e.setBuffer(q, offset: 0, index: 5)
             e.setBuffer(kc, offset: kvOff, index: 6); e.setBuffer(vc, offset: kvOff, index: 7)
             e.setBuffer(rope, offset: 0, index: 8); e.setBuffer(state, offset: 0, index: 9)
-            grid(e, 36, 1, 128)
+            grid(e, 36, 1, 32 * (32 / R))
             e.setComputePipelineState(pAttention)
             e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
             e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
@@ -460,15 +463,15 @@ public final class Engine {
             e.setComputePipelineState(p[1])
             w(e, L(TensorID.wo), 0); w(e, L(TensorID.woSB), 1)
             e.setBuffer(attn, offset: 0, index: 2); e.setBuffer(x, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
-            grid(e, 56, 1, 64)
+            grid(e, Dims.hidden / (2 * R), 1, 64)
             e.setComputePipelineState(p[2])
             w(e, L(TensorID.wgu), 0); w(e, L(TensorID.wguSB), 1); w(e, L(TensorID.mlpNorm), 2)
             e.setBuffer(x, offset: 0, index: 3); e.setBuffer(hbuf, offset: 0, index: 4); e.setBuffer(state, offset: 0, index: 5)
-            grid(e, 608, 1, 64)
+            grid(e, 2 * Dims.ff / (2 * R), 1, 64)
             e.setComputePipelineState(p[3])
             w(e, L(TensorID.wd), 0); w(e, L(TensorID.wdSB), 1)
             e.setBuffer(hbuf, offset: 0, index: 2); e.setBuffer(x, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
-            grid(e, 56, 1, 64)
+            grid(e, Dims.hidden / (2 * R), 1, 64)
         }
         e.setComputePipelineState(p[4])
         w(e, TensorID.embed, 0); w(e, TensorID.embedSB, 1); w(e, TensorID.finalNorm, 2)
@@ -476,8 +479,15 @@ public final class Engine {
         e.setBuffer(state, offset: 0, index: 6); e.setBuffer(logits, offset: 0, index: 7)
         var wl: Int32 = 0
         e.setBytes(&wl, length: 4, index: 8)
-        grid(e, Dims.vocab / 32, 1, 128)
+        grid(e, Dims.vocab / 32, 1, 32 * (32 / R))
         encodeCommitSpec(e)
+    }
+
+    private func encodeSpecPassNoCommit(_ e: MTLComputeCommandEncoder, T: Int, p: [MTLComputePipelineState], R: Int) {
+        let saved = pCommitSpec
+        pCommitSpec = pNoop
+        encodeSpecPass(e, T: T, p: p, R: R)
+        pCommitSpec = saved
     }
 
     private func encodePrefill(_ e: MTLComputeCommandEncoder, n: Int, writeLogits: Bool) {
@@ -556,50 +566,18 @@ public final class Engine {
         }
         r.append(("decode step (1 token)", gpuTime(n: 1, pos: pos + n) { e in self.encodeDecodeStep(e, writeLogits: false) }))
         r.append(("decode 16 steps / 16", gpuTime(n: 1, pos: pos + n, iters: 5) { e in for _ in 0..<16 { self.encodeDecodeStep(e, writeLogits: false) } } / 16))
-        for T in [2, 3, 4] where pSpec[T] != nil {
-            let st = state.contents().assumingMemoryBound(to: Int32.self)
-            _ = st
-            r.append(("  24x attn_in T=\(T)", gpuTime(n: T, pos: pos + n) { e in
-                let p = self.pSpec[T]!
-                for l in 0..<Dims.layers {
-                    let L = { TensorID.layer(l, $0) }
-                    let kvOff = l * Dims.kvHeads * self.maxContext * Dims.headDim * 2
-                    e.setComputePipelineState(p[0])
-                    self.w(e, L(TensorID.wqkv), 0); self.w(e, L(TensorID.wqkvSB), 1); self.w(e, L(TensorID.bqkv), 2); self.w(e, L(TensorID.attnNorm), 3)
-                    e.setBuffer(self.x, offset: 0, index: 4); e.setBuffer(self.q, offset: 0, index: 5)
-                    e.setBuffer(self.kc, offset: kvOff, index: 6); e.setBuffer(self.vc, offset: kvOff, index: 7)
-                    e.setBuffer(self.rope, offset: 0, index: 8); e.setBuffer(self.state, offset: 0, index: 9)
-                    self.grid(e, 36, 1, 128)
-                }
-            }))
-            r.append(("  24x o_proj T=\(T)", gpuTime(n: T, pos: pos + n) { e in
-                for l in 0..<Dims.layers {
-                    e.setComputePipelineState(self.pSpec[T]![1])
-                    self.w(e, TensorID.layer(l, TensorID.wo), 0); self.w(e, TensorID.layer(l, TensorID.woSB), 1)
-                    e.setBuffer(self.attn, offset: 0, index: 2); e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.state, offset: 0, index: 4)
-                    self.grid(e, 56, 1, 64)
-                } }))
-            r.append(("  24x mlp_in T=\(T)", gpuTime(n: T, pos: pos + n) { e in
-                for l in 0..<Dims.layers {
-                    e.setComputePipelineState(self.pSpec[T]![2])
-                    self.w(e, TensorID.layer(l, TensorID.wgu), 0); self.w(e, TensorID.layer(l, TensorID.wguSB), 1); self.w(e, TensorID.layer(l, TensorID.mlpNorm), 2)
-                    e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.hbuf, offset: 0, index: 4); e.setBuffer(self.state, offset: 0, index: 5)
-                    self.grid(e, 608, 1, 64)
-                } }))
-            r.append(("  24x mlp_out T=\(T)", gpuTime(n: T, pos: pos + n) { e in
-                for l in 0..<Dims.layers {
-                    e.setComputePipelineState(self.pSpec[T]![3])
-                    self.w(e, TensorID.layer(l, TensorID.wd), 0); self.w(e, TensorID.layer(l, TensorID.wdSB), 1)
-                    e.setBuffer(self.hbuf, offset: 0, index: 2); e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.state, offset: 0, index: 4)
-                    self.grid(e, 56, 1, 64)
-                } }))
-            r.append(("  lm_head T=\(T)", gpuTime(n: T, pos: pos + n) { e in
-                e.setComputePipelineState(self.pSpec[T]![4])
-                self.w(e, TensorID.embed, 0); self.w(e, TensorID.embedSB, 1); self.w(e, TensorID.finalNorm, 2)
-                e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.pval, offset: 0, index: 4); e.setBuffer(self.pidx, offset: 0, index: 5)
-                e.setBuffer(self.state, offset: 0, index: 6); e.setBuffer(self.logits, offset: 0, index: 7)
-                var wl: Int32 = 0; e.setBytes(&wl, length: 4, index: 8)
-                self.grid(e, Dims.vocab / 32, 1, 128) }))
+        if format == .q4 {
+            let s0 = state.contents().assumingMemoryBound(to: Int32.self)
+            var variants: [(String, Int, [MTLComputePipelineState], Int)] = [("T=1", 1, [pAttnIn, pOProj, pMlpIn, pMlpOut, pLMHead], 8)]
+            for T in 2...4 { if let p = pSpec[T] { variants.append(("T=\(T)", T, p, Engine.specRows(T))) } }
+            if let p = pSpecVar["2r4"] { variants.append(("T=2 R=4", 2, p, 4)) }
+            if let p = pSpecVar["3r8"] { variants.append(("T=3 R=8", 3, p, 8)) }
+            for (name, T, p, R) in variants {
+                r.append(("pass \(name) (layers + lm_head)", gpuTime(n: T, pos: pos + n) { e in
+                    s0[9] = Int32(T)
+                    self.encodeSpecPassNoCommit(e, T: T, p: p, R: R)
+                }))
+            }
         }
         r.append(("  24x attn_in (decode)", gpuTime(n: 1, pos: pos + n) { e in for l in 0..<Dims.layers { self.encodeLayerPart(e, l, part: 0) } }))
         r.append(("  24x attention (decode)", gpuTime(n: 1, pos: pos + n) { e in for l in 0..<Dims.layers { self.encodeLayerPart(e, l, part: 1) } }))
@@ -608,6 +586,11 @@ public final class Engine {
         r.append(("  24x mlp_out (decode)", gpuTime(n: 1, pos: pos + n) { e in for l in 0..<Dims.layers { self.encodeLayerPart(e, l, part: 4) } }))
         r.append(("  lm_head (decode)", gpuTime(n: 1, pos: pos + n) { e in self.encodeLMHead(e, writeLogits: false) }))
         r.append(("  commit (decode)", gpuTime(n: 1, pos: pos + n) { e in self.encodeCommit(e) }))
+        if pCommitSpec != nil {
+            let s0 = state.contents().assumingMemoryBound(to: Int32.self)
+            r.append(("  commit_spec T=2 (decode)", gpuTime(n: 1, pos: pos + n) { e in s0[8] = 2; s0[9] = 2; self.encodeCommitSpec(e) }))
+            r.append(("  commit_spec T=3 (decode)", gpuTime(n: 1, pos: pos + n) { e in s0[8] = 3; s0[9] = 3; self.encodeCommitSpec(e) }))
+        }
         return r
     }
 

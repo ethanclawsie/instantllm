@@ -158,8 +158,10 @@ case "bench":
     let variant = args.get("variant", engine.format.description)
     if args.flags.contains("ignore-eos") { engine.eos = (-5, -5) }
     engine.chunk = args.int("chunk", engine.chunk)
-    engine.specT = args.int("spec", 1)
-    if engine.specT > 1 { try? engine.loadDraftTable(path: args.get("draft-table", "models/ill/ngram.bin")) }
+    engine.specT = args.int("spec", 2)
+    if engine.specT > 1 {
+        if (try? engine.loadDraftTable(path: args.get("draft-table", resolveAsset(nil, env: "INSTANTLLM_DRAFT", name: "ngram.bin")))) == nil { engine.specT = 1 }
+    }
     engine.depth = args.int("depth", engine.depth)
     engine.firstChunk = args.int("first-chunk", engine.firstChunk)
     let prefixLen = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n").count
@@ -178,6 +180,28 @@ case "bench":
         return (text, t, out.count + (t.stopToken >= 0 ? 1 : 0), t0, t1)
     }
     for p in prompts { _ = request(p) }  // warmup (also caches the system prefix)
+    if let abT = args.options["abba"].flatMap(Int.init) {
+        // Paired comparison inside one process: per prompt run plain, spec, spec, plain (drift cancels).
+        try? engine.loadDraftTable(path: args.get("draft-table", "models/ill/ngram.bin"))
+        var dE: [Double] = [], dT: [Double] = [], plainE: [Double] = [], specE: [Double] = []
+        for _ in 0..<reps {
+            for p in prompts {
+                var e = [Double](repeating: 0, count: 4), t = [Double](repeating: 0, count: 4)
+                for (i, T) in [1, abT, abT, 1].enumerated() {
+                    engine.specT = T
+                    let res = request(p)
+                    e[i] = ms(res.t0, res.t1); t[i] = ms(res.t0, res.t.tFirst)
+                }
+                dE.append((e[1] + e[2] - e[0] - e[3]) / 2); dT.append((t[1] + t[2] - t[0] - t[3]) / 2)
+                plainE.append((e[0] + e[3]) / 2); specE.append((e[1] + e[2]) / 2)
+            }
+        }
+        func med(_ a: [Double]) -> Double { let s = a.sorted(); return s[s.count / 2] }
+        let mean = { (a: [Double]) in a.reduce(0, +) / Double(a.count) }
+        print(String(format: "ABBA spec %d vs plain: e2e mean %.2f -> %.2f ms (%.1f%%), median paired delta %.2f ms; ttft median delta %.2f ms",
+                     abT, mean(plainE), mean(specE), 100 * (mean(specE) / mean(plainE) - 1), med(dE), med(dT)))
+        exit(0)
+    }
     print("engine\tvariant\tmode\tprompt_idx\trep\te2e_ms\tttft_ms\tprefill_tokens\tgen_tokens\tdecode_tok_s\ttext")
     var e2e: [Double] = [], ttft: [Double] = [], dec: [Double] = []
     var totPasses = 0, totAcc = 0, totGen = 0
@@ -206,6 +230,8 @@ case "run":
         tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
         engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"), pinMemory: false)
     } catch { fail("\(error)") }
+    engine.specT = args.int("spec", 2)
+    if engine.specT > 1 && (try? engine.loadDraftTable(path: args.get("draft-table", resolveAsset(nil, env: "INSTANTLLM_DRAFT", name: "ngram.bin")))) == nil { engine.specT = 1 }
     // System-prompt KV saved by an earlier run (keyed by model file and the exact prefix tokens).
     let prefixToks = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n")
     var hasher = Hasher()

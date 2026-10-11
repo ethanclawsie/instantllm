@@ -605,9 +605,25 @@ static inline float reduce8(thread float* v, ushort lane) {
     return t1 + simd_shuffle_xor(t1, 1);
 }
 
+// 4 rows: row r ends up in lanes 8r..8r+7.
+static inline float reduce4(thread float* v, ushort lane) {
+    float t2[2];
+    bool b = (lane & 16) != 0;
+    for (int i = 0; i < 2; i++) { const float keep = b ? v[2 + i] : v[i], send = b ? v[i] : v[2 + i]; t2[i] = keep + simd_shuffle_xor(send, 16); }
+    b = (lane & 8) != 0;
+    const float keep = b ? t2[1] : t2[0], send = b ? t2[0] : t2[1];
+    float t1 = keep + simd_shuffle_xor(send, 8);
+    t1 += simd_shuffle_xor(t1, 4);
+    t1 += simd_shuffle_xor(t1, 2);
+    return t1 + simd_shuffle_xor(t1, 1);
+}
+
+template<int R>
+static inline float reduceR(thread float* v, ushort lane) { return R == 8 ? reduce8(v, lane) : reduce4(v, lane); }
+
 // 32 nibbles unpacked once, T dot products with the fp16 inputs (in-order fp32 accumulation).
 template<int T>
-static inline void q4_dot32(uint4 w, thread const half (&xh)[T][32], thread float* d) {
+static inline void q4_dot32(uint4 w, thread const uint (&xh)[T][16], thread float* d) {
     for (int t = 0; t < T; t++) d[t] = 0.f;
     for (int u = 0; u < 4; ++u) {
         const uint v = w[u];
@@ -617,16 +633,15 @@ static inline void q4_dot32(uint4 w, thread const half (&xh)[T][32], thread floa
         const half2 p37 = as_type<half2>(((v >> 6) & 0x03C003C0u) | 0x3C003C00u);
         const float f[8] = {float(p04.x), float(p15.x), float(p26.x), float(p37.x), float(p04.y), float(p15.y), float(p26.y), float(p37.y)};
         for (int t = 0; t < T; t++) {
-            thread const half* xu = xh[t] + u * 8;
             float a = d[t];
-            for (int k = 0; k < 8; k++) a = fma(f[k], float(xu[k]), a);
+            for (int k = 0; k < 4; k++) { const float2 xx = float2(as_type<half2>(xh[t][4 * u + k])); a = fma(f[2 * k], xx.x, a); a = fma(f[2 * k + 1], xx.y, a); }
             d[t] = a;
         }
     }
 }
 
 // Lane's 32-column chunk of RMSNorm(x) * w as fp16; X = sum of the rounded values. Lanes >= 28: zeros.
-static inline void q4_chunk_norm(device const float* x, device const float* w, ushort lane, thread half* xh, thread float& X) {
+static inline void q4_chunk_norm(device const float* x, device const float* w, ushort lane, thread uint* xh, thread float& X) {
     float xv[32];
     float ss = 0.f;
     if (lane < 28) {
@@ -641,34 +656,34 @@ static inline void q4_chunk_norm(device const float* x, device const float* w, u
         for (int i = 0; i < 8; i++) {
             const float4 t = float4(xv[4*i], xv[4*i+1], xv[4*i+2], xv[4*i+3]) * scale * ws[i];
             const half4 h = half4(t);
-            xh[4*i] = h.x; xh[4*i+1] = h.y; xh[4*i+2] = h.z; xh[4*i+3] = h.w;
+            xh[2*i] = as_type<uint>(h.xy); xh[2*i+1] = as_type<uint>(h.zw);
             X += float(h.x) + float(h.y) + float(h.z) + float(h.w);
         }
     } else {
-        for (int i = 0; i < 32; i++) xh[i] = 0.h;
+        for (int i = 0; i < 16; i++) xh[i] = 0u;
     }
 }
 
-static inline void q4_chunk_plain(device const float* x, ushort lane, thread half* xh, thread float& X) {
+static inline void q4_chunk_plain(device const float* x, ushort lane, thread uint* xh, thread float& X) {
     X = 0.f;
     if (lane < 28) {
         device const float4* xs = (device const float4*)(x + lane * 32);
         for (int i = 0; i < 8; i++) {
             const half4 h = half4(xs[i]);
-            xh[4*i] = h.x; xh[4*i+1] = h.y; xh[4*i+2] = h.z; xh[4*i+3] = h.w;
+            xh[2*i] = as_type<uint>(h.xy); xh[2*i+1] = as_type<uint>(h.zw);
             X += float(h.x) + float(h.y) + float(h.z) + float(h.w);
         }
     } else {
-        for (int i = 0; i < 32; i++) xh[i] = 0.h;
+        for (int i = 0; i < 16; i++) xh[i] = 0u;
     }
 }
 
-// 8 rows (from r0) of a K = 896 matrix for T tokens: lane-local partials v[t][r] before the reduction.
-template<int T>
-static inline void q4_rows8(device const uchar* W, device const half2* SB, uint r0, thread const half (&xh)[T][32],
-                            thread const float* X, ushort lane, thread float (&v)[T][8]) {
-    if (lane >= 28) { for (int t = 0; t < T; t++) for (int r = 0; r < 8; r++) v[t][r] = 0.f; return; }
-    for (int rb = 0; rb < 8; rb += 4) {
+// R rows (from r0) of a K = 896 matrix for T tokens: lane-local partials v[t][r] before the reduction.
+template<int T, int R>
+static inline void q4_rows(device const uchar* W, device const half2* SB, uint r0, thread const uint (&xh)[T][16],
+                           thread const float* X, ushort lane, thread float (&v)[T][R]) {
+    if (lane >= 28) { for (int t = 0; t < T; t++) for (int r = 0; r < R; r++) v[t][r] = 0.f; return; }
+    for (int rb = 0; rb < R; rb += 4) {
         uint4 w[4];
         float2 sb[4];
         for (int b = 0; b < 4; b++) {
@@ -685,7 +700,7 @@ static inline void q4_rows8(device const uchar* W, device const half2* SB, uint 
 
 // RMSNorm + QKV + bias + RoPE + KV write (32-row rotary blocks: rows i, i+16 = dims d, d+32).
 // Grid (36), 128 threads: 4 simdgroups x 8 rows. Rows t = 0..T-1 of x at positions pos+t.
-template<int T>
+template<int T, int R>
 kernel void k_attn_in_T(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
                         device const float* bias [[buffer(2)]], device const float* wnorm [[buffer(3)]],
                         device const float* x [[buffer(4)]], device float* q [[buffer(5)]],
@@ -694,15 +709,16 @@ kernel void k_attn_in_T(device const uchar* W [[buffer(0)]], device const half2*
                         uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]],
                         ushort lane [[thread_index_in_simdgroup]], ushort sg [[simdgroup_index_in_threadgroup]]) {
     if (st->done) return;
+    constexpr int LPR = 32 / R;
     threadgroup float outv[T][32];
-    half xh[T][32];
-    float X[T], v[T][8];
+    uint xh[T][16];
+    float X[T], v[T][R];
     for (int t = 0; t < T; t++) q4_chunk_norm(x + t * H, wnorm, lane, xh[t], X[t]);
-    const uint r0 = tgp.x * 32 + sg * 8;
-    q4_rows8<T>(W, SB, r0, xh, X, lane, v);
+    const uint r0 = tgp.x * 32 + sg * R;
+    q4_rows<T, R>(W, SB, r0, xh, X, lane, v);
     for (int t = 0; t < T; t++) {
-        const float y = reduce8(v[t], lane);
-        if ((lane & 3) == 0) outv[t][sg * 8 + (lane >> 2)] = y + bias[r0 + (lane >> 2)];
+        const float y = reduceR<R>(v[t], lane);
+        if (lane % LPR == 0) outv[t][sg * R + lane / LPR] = y + bias[r0 + lane / LPR];
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 16 * T) {
@@ -731,43 +747,45 @@ kernel void k_attn_in_T(device const uchar* W [[buffer(0)]], device const half2*
 }
 
 // Output projection + residual. Grid (56), 64 threads: 2 simdgroups x 8 rows.
-template<int T>
+template<int T, int R>
 kernel void k_o_proj_T(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
                        device const float* a [[buffer(2)]], device float* x [[buffer(3)]],
                        device const State* st [[buffer(4)]],
                        uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
                        ushort sg [[simdgroup_index_in_threadgroup]]) {
     if (st->done) return;
-    half xh[T][32];
-    float X[T], v[T][8];
+    constexpr int LPR = 32 / R;
+    uint xh[T][16];
+    float X[T], v[T][R];
     for (int t = 0; t < T; t++) q4_chunk_plain(a + t * H, lane, xh[t], X[t]);
-    const uint r0 = tgp.x * 16 + sg * 8;
-    q4_rows8<T>(W, SB, r0, xh, X, lane, v);
+    const uint r0 = (tgp.x * 2 + sg) * R;
+    q4_rows<T, R>(W, SB, r0, xh, X, lane, v);
     for (int t = 0; t < T; t++) {
-        const float y = reduce8(v[t], lane);
-        if ((lane & 3) == 0) x[t * H + r0 + (lane >> 2)] += y;
+        const float y = reduceR<R>(v[t], lane);
+        if (lane % LPR == 0) x[t * H + r0 + lane / LPR] += y;
     }
 }
 
 // RMSNorm + gate/up + SiLU*up; stored rows in groups of 4 = gate[2q], gate[2q+1], up[2q], up[2q+1].
 // Grid (608), 64 threads: 2 simdgroups x 8 rows (= 4 hidden units per simdgroup).
-template<int T>
+template<int T, int R>
 kernel void k_mlp_in_T(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
                        device const float* wnorm [[buffer(2)]], device const float* x [[buffer(3)]],
                        device float* hbuf [[buffer(4)]], device const State* st [[buffer(5)]],
                        uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
                        ushort sg [[simdgroup_index_in_threadgroup]]) {
     if (st->done) return;
-    half xh[T][32];
-    float X[T], v[T][8];
+    constexpr int LPR = 32 / R;
+    uint xh[T][16];
+    float X[T], v[T][R];
     for (int t = 0; t < T; t++) q4_chunk_norm(x + t * H, wnorm, lane, xh[t], X[t]);
-    const uint r0 = tgp.x * 16 + sg * 8;
-    q4_rows8<T>(W, SB, r0, xh, X, lane, v);
-    const int row = lane >> 2;
+    const uint r0 = (tgp.x * 2 + sg) * R;
+    q4_rows<T, R>(W, SB, r0, xh, X, lane, v);
+    const int row = lane / LPR;
     for (int t = 0; t < T; t++) {
-        const float y = reduce8(v[t], lane);
-        const float u = simd_shuffle_down(y, 8);
-        if ((lane & 3) == 0 && (row & 2) == 0) {
+        const float y = reduceR<R>(v[t], lane);
+        const float u = simd_shuffle_down(y, 2 * LPR);   // row + 2 = the matching up row
+        if (lane % LPR == 0 && (row & 2) == 0) {
             const int unit = 2 * (int(r0 / 4) + (row >> 2)) + (row & 1);
             hbuf[t * FF + unit] = y / (1.f + exp(-y)) * u;
         }
@@ -776,29 +794,30 @@ kernel void k_mlp_in_T(device const uchar* W [[buffer(0)]], device const half2* 
 
 // Down projection + residual (K = 4864): lanes stride 152 chunks of 32 columns; input chunks are read
 // from device memory (L2) per step and rounded to fp16. Grid (56), 64 threads: 2 simdgroups x 8 rows.
-template<int T>
+template<int T, int R>
 kernel void k_mlp_out_T(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
                         device const float* hbuf [[buffer(2)]], device float* x [[buffer(3)]],
                         device const State* st [[buffer(4)]],
                         uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
                         ushort sg [[simdgroup_index_in_threadgroup]]) {
     if (st->done) return;
-    const uint r0 = tgp.x * 16 + sg * 8;
-    float acc[T][8];
-    for (int t = 0; t < T; t++) for (int r = 0; r < 8; r++) acc[t][r] = 0.f;
+    constexpr int LPR = 32 / R;
+    const uint r0 = (tgp.x * 2 + sg) * R;
+    float acc[T][R];
+    for (int t = 0; t < T; t++) for (int r = 0; r < R; r++) acc[t][r] = 0.f;
     for (int c = lane; c < FF / 32; c += 32) {
-        half xh[T][32];
+        uint xh[T][16];
         float X[T];
         for (int t = 0; t < T; t++) {
             X[t] = 0.f;
             device const float4* xs = (device const float4*)(hbuf + t * FF + c * 32);
             for (int i = 0; i < 8; i++) {
                 const half4 h = half4(xs[i]);
-                xh[t][4*i] = h.x; xh[t][4*i+1] = h.y; xh[t][4*i+2] = h.z; xh[t][4*i+3] = h.w;
+                xh[t][2*i] = as_type<uint>(h.xy); xh[t][2*i+1] = as_type<uint>(h.zw);
                 X[t] += float(h.x) + float(h.y) + float(h.z) + float(h.w);
             }
         }
-        for (int rb = 0; rb < 8; rb += 4) {
+        for (int rb = 0; rb < R; rb += 4) {
             uint4 w[4];
             float2 sb[4];
             for (int b = 0; b < 4; b++) {
@@ -813,14 +832,14 @@ kernel void k_mlp_out_T(device const uchar* W [[buffer(0)]], device const half2*
         }
     }
     for (int t = 0; t < T; t++) {
-        const float y = reduce8(acc[t], lane);
-        if ((lane & 3) == 0) x[t * H + r0 + (lane >> 2)] += y;
+        const float y = reduceR<R>(acc[t], lane);
+        if (lane % LPR == 0) x[t * H + r0 + lane / LPR] += y;
     }
 }
 
 // Final RMSNorm + tied lm_head + per-threadgroup argmax for rows (st->n - T) .. (st->n - 1) of x;
 // partials laid out [t][LMH_TGS]. Grid (4748), 128 threads: 4 simdgroups x 8 vocabulary rows.
-template<int T>
+template<int T, int R>
 kernel void k_lm_head_T(device const uchar* E [[buffer(0)]], device const half2* ESB [[buffer(1)]],
                         device const float* wnorm [[buffer(2)]], device const float* x [[buffer(3)]],
                         device float* pval [[buffer(4)]], device int* pidx [[buffer(5)]],
@@ -829,18 +848,19 @@ kernel void k_lm_head_T(device const uchar* E [[buffer(0)]], device const half2*
                         uint tg [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
                         ushort sg [[simdgroup_index_in_threadgroup]]) {
     if (st->done) return;
-    threadgroup float bv[T][4];
-    threadgroup int bix[T][4];
-    half xh[T][32];
-    float X[T], v[T][8];
+    constexpr int LPR = 32 / R, NSG = 32 / R;
+    threadgroup float bv[T][NSG];
+    threadgroup int bix[T][NSG];
+    uint xh[T][16];
+    float X[T], v[T][R];
     device const float* xr = x + (st->n - T) * H;
     for (int t = 0; t < T; t++) q4_chunk_norm(xr + t * H, wnorm, lane, xh[t], X[t]);
-    const uint r0 = tg * 32 + sg * 8;
-    q4_rows8<T>(E, ESB, r0, xh, X, lane, v);
+    const uint r0 = tg * 32 + sg * R;
+    q4_rows<T, R>(E, ESB, r0, xh, X, lane, v);
     for (int t = 0; t < T; t++) {
-        const float y = reduce8(v[t], lane);
-        const int row = int(r0) + (lane >> 2);
-        if (T == 1 && write_logits && (lane & 3) == 0) logits[row] = y;
+        const float y = reduceR<R>(v[t], lane);
+        const int row = int(r0) + lane / LPR;
+        if (T == 1 && write_logits && lane % LPR == 0) logits[row] = y;
         const float m = simd_max(y);
         const int idx = simd_min(y == m ? row : 0x7fffffff);
         if (lane == 0) { bv[t][sg] = m; bix[t][sg] = idx; }
@@ -850,22 +870,25 @@ kernel void k_lm_head_T(device const uchar* E [[buffer(0)]], device const half2*
         const int t = lane;
         float best = bv[t][0];
         int bi = bix[t][0];
-        for (int s2 = 1; s2 < 4; ++s2) if (bv[t][s2] > best) { best = bv[t][s2]; bi = bix[t][s2]; }
+        for (int s2 = 1; s2 < NSG; ++s2) if (bv[t][s2] > best) { best = bv[t][s2]; bi = bix[t][s2]; }
         pval[t * LMH_TGS + tg] = best;
         pidx[t * LMH_TGS + tg] = bi;
     }
 }
 
-#define INST_T(T, SUF) \
-template [[host_name("k_attn_in" SUF)]] kernel void k_attn_in_T<T>(device const uchar*, device const half2*, device const float*, device const float*, device const float*, device float*, device half*, device half*, device const float2*, device const State*, uint2, uint, ushort, ushort); \
-template [[host_name("k_o_proj" SUF)]] kernel void k_o_proj_T<T>(device const uchar*, device const half2*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
-template [[host_name("k_mlp_in" SUF)]] kernel void k_mlp_in_T<T>(device const uchar*, device const half2*, device const float*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
-template [[host_name("k_mlp_out" SUF)]] kernel void k_mlp_out_T<T>(device const uchar*, device const half2*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
-template [[host_name("k_lm_head" SUF)]] kernel void k_lm_head_T<T>(device const uchar*, device const half2*, device const float*, device const float*, device float*, device int*, device const State*, device float*, constant int&, uint, ushort, ushort);
-INST_T(1, "")
-INST_T(2, "_2")
-INST_T(3, "_3")
-INST_T(4, "_4")
+#define INST_T(T, R, SUF) \
+template [[host_name("k_attn_in" SUF)]] kernel void k_attn_in_T<T, R>(device const uchar*, device const half2*, device const float*, device const float*, device const float*, device float*, device half*, device half*, device const float2*, device const State*, uint2, uint, ushort, ushort); \
+template [[host_name("k_o_proj" SUF)]] kernel void k_o_proj_T<T, R>(device const uchar*, device const half2*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
+template [[host_name("k_mlp_in" SUF)]] kernel void k_mlp_in_T<T, R>(device const uchar*, device const half2*, device const float*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
+template [[host_name("k_mlp_out" SUF)]] kernel void k_mlp_out_T<T, R>(device const uchar*, device const half2*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
+template [[host_name("k_lm_head" SUF)]] kernel void k_lm_head_T<T, R>(device const uchar*, device const half2*, device const float*, device const float*, device float*, device int*, device const State*, device float*, constant int&, uint, ushort, ushort);
+INST_T(1, 8, "")
+INST_T(2, 8, "_2")
+INST_T(3, 8, "_3")
+INST_T(4, 8, "_4")
+
+
+
 #endif
 
 #if FMT == 3
@@ -1411,7 +1434,10 @@ inline void gemm3_body(device half* X, device const uchar* W, device const half2
                        device const float* bias, device float* outf, device half* outh,
                        device half* kc, device half* vc, device const float2* rope, device const State* st,
                        threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
-    constexpr int BK = 64;
+    // Each simdgroup takes a contiguous K range (whole cache lines of its 32 rows): K = 896 -> 7
+    // steps of 32 columns, K = 4864 -> 19 steps of 64. Lane = row; w = (16 s)(1 + n/16) + (b - 16 s).
+    constexpr int BK = K == H ? 32 : 64;
+    constexpr int NSTEP = K / BK / NS;
     const int n = st->n;
     const uint r0 = tgp.x * 32;
     const int t0 = tgp.y * TT;
@@ -1422,18 +1448,28 @@ inline void gemm3_body(device half* X, device const uchar* W, device const half2
     matmul2d<desc, execution_simdgroup> op;
     auto cT = op.template get_destination_cooperative_tensor<decltype(tX), decltype(tW), float>();
     for (int i = 0; i < cT.get_capacity(); i++) if (cT.is_valid_element(i)) cT[i] = 0.f;
-    for (uint step = sg; step < (uint)(K / BK); step += NS) {
-        const uint k0 = step * BK;
-        // lane = row: 64 weights = 32 bytes + one (scale, bias) pair
-        device const uint4* src = (device const uint4*)(W + (ulong)(r0 + lane) * (K / 2) + k0 / 2);
-        const float2 sb = float2(SB[(r0 + lane) * (K / 64) + k0 / 64]);
-        threadgroup half4* dst = (threadgroup half4*)(ws + lane * BK);
-        for (int q = 0; q < 2; ++q) {
+    device const uchar* wrow = W + (ulong)(r0 + lane) * (K / 2);
+    device const half2* sbrow = SB + (r0 + lane) * (K / 64);
+    threadgroup half2* dst = (threadgroup half2*)(ws + lane * BK);
+    for (int i = 0; i < NSTEP; i++) {
+        const uint k0 = (sg * NSTEP + i) * BK;
+        const half2 sb = sbrow[k0 / 64];
+        const half2 mul = half2(half(16.f * float(sb.x)));
+        const half2 add = half2(half(float(sb.y) - 16.f * float(sb.x)));
+        device const uint4* src = (device const uint4*)(wrow + k0 / 2);
+        for (int q = 0; q < BK / 32; ++q) {
             const uint4 wv = src[q];
             for (int u = 0; u < 4; ++u) {
-                const uint v = wv[u];
-                dst[q * 8 + 2 * u] = half4(sb.x * float4(float(v & 0xF), float((v >> 4) & 0xF), float((v >> 8) & 0xF), float((v >> 12) & 0xF)) + sb.y);
-                dst[q * 8 + 2 * u + 1] = half4(sb.x * float4(float((v >> 16) & 0xF), float((v >> 20) & 0xF), float((v >> 24) & 0xF), float(v >> 28)) + sb.y);
+                const uint v = wv[u];   // nibbles k = 0..7 of this word: pairs (0,4) (1,5) (2,6) (3,7)
+                const half2 p04 = as_type<half2>(((v << 6) & 0x03C003C0u) | 0x3C003C00u);
+                const half2 p15 = as_type<half2>(((v << 2) & 0x03C003C0u) | 0x3C003C00u);
+                const half2 p26 = as_type<half2>(((v >> 2) & 0x03C003C0u) | 0x3C003C00u);
+                const half2 p37 = as_type<half2>(((v >> 6) & 0x03C003C0u) | 0x3C003C00u);
+                const int o = q * 16 + u * 4;   // half2 index of weights 8(4q+u) .. +7
+                dst[o + 0] = fma(half2(p04.x, p15.x), mul, add);
+                dst[o + 1] = fma(half2(p26.x, p37.x), mul, add);
+                dst[o + 2] = fma(half2(p04.y, p15.y), mul, add);
+                dst[o + 3] = fma(half2(p26.y, p37.y), mul, add);
             }
         }
         simdgroup_barrier(mem_flags::mem_threadgroup);

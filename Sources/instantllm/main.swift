@@ -20,7 +20,7 @@ struct Args {
                 let key = String(a.dropFirst(2))
                 if let eq = key.firstIndex(of: "=") {
                     options[String(key[..<eq])] = String(key[key.index(after: eq)...])
-                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep", "sketch", "ttft-breakdown", "no-heater"].contains(key) {
+                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep", "sketch", "ttft-breakdown", "no-heater", "wide", "no-ildraft"].contains(key) {
                     flags.insert(key)
                 } else if let v = it.next() {
                     options[key] = v
@@ -116,6 +116,11 @@ case "golden":
     try? FileManager.default.createDirectory(atPath: odir, withIntermediateDirectories: true)
     let engine: Engine
     do { engine = try Engine(modelPath: args.get("model", "model.ill")) } catch { fail("\(error)") }
+    if args.flags.contains("wide") {
+        // Greedy decoding with the wide verify kernels (no drafts): the numerics of speculative runs.
+        engine.wideVerify = true; engine.noDraft = true; engine.specT = 8
+        do { try engine.loadDraftTable(path: args.get("draft-table", "models/ill/ngram.bin")) } catch { fail("\(error)") }
+    }
     var logits = [Float](repeating: 0, count: Dims.vocab)
     var i = 0
     while let d = FileManager.default.contents(atPath: String(format: "%@/p%02d.json", gdir, i)),
@@ -165,6 +170,13 @@ case "bench":
     }
     engine.depth = args.int("depth", engine.depth)
     engine.firstChunk = args.int("first-chunk", engine.firstChunk)
+    if !args.flags.contains("no-ildraft") {
+        let p = args.options["ildraft"] ?? resolveAsset(nil, env: "INSTANTLLM_ILDRAFT", name: "ildraft.bin")
+        if args.options["ildraft"] != nil || FileManager.default.fileExists(atPath: p) {
+            do { try engine.loadLearnedDrafter(path: p) } catch { fail("\(error)") }
+        }
+    }
+    engine.learnedT = args.int("learned-t", engine.learnedT)
     let prefixLen = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n").count
     func esc(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\t", with: "\\t")
@@ -174,6 +186,7 @@ case "bench":
         if mode == "full" { engine.truncateCache(0) } else { engine.truncateCache(prefixLen) }
         let t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let ids = tok.encodeChat(system: system, user: prompt)
+        if ids.count >= prefixLen + 5 { engine.setDraftContext(prompt: Array(ids[prefixLen..<(ids.count - 5)]), text: prompt, encode: tok.encode) }
         let out = engine.generate(ids, maxNew: maxNew)
         let text = tok.decode(out)
         let t1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
@@ -184,15 +197,24 @@ case "bench":
     if let ab = args.options["abba"] {
         // Paired comparison inside one process: per prompt run A, B, B, A (drift cancels).
         // --abba T compares speculation width T with plain decoding, --abba A,B two widths.
-        let w = ab.split(separator: ",").compactMap { Int($0) }
-        let (aT, abT) = w.count == 2 ? (w[0], w[1]) : (1, w.first ?? 2)
+        // "w8" = a wide verify pass (Neural Accelerators) with 8 rows; an "l" prefix = learned drafter.
+        let parse = { (x0: Substring) -> (Int, Bool, Bool) in
+            let l = x0.hasPrefix("l"), x = l ? x0.dropFirst() : x0
+            return x.hasPrefix("w") ? (Int(x.dropFirst()) ?? 8, true, l) : (Int(x) ?? 2, false, l)
+        }
+        let w = ab.split(separator: ",").map(parse)
+        let (aT, abT) = w.count == 2 ? (w[0].0, w[1].0) : (1, w.first?.0 ?? 2)
+        let (aWide, bWide) = w.count == 2 ? (w[0].1, w[1].1) : (false, w.first?.1 ?? false)
+        let (aL, bL) = w.count == 2 ? (w[0].2, w[1].2) : (false, w.first?.2 ?? false)
         try? engine.loadDraftTable(path: args.get("draft-table", "models/ill/ngram.bin"))
         var dE: [Double] = [], dT: [Double] = [], plainE: [Double] = [], specE: [Double] = []
         for _ in 0..<reps {
             for p in prompts {
                 var e = [Double](repeating: 0, count: 4), t = [Double](repeating: 0, count: 4)
                 for (i, T) in [aT, abT, abT, aT].enumerated() {
-                    engine.specT = T
+                    let (wide, learned) = (i == 1 || i == 2) ? (bWide, bL) : (aWide, aL)
+                    engine.useLearned = learned
+                    if learned { engine.learnedT = T; engine.learnedWide = wide } else { engine.specT = T; engine.wideVerify = wide }
                     let res = request(p)
                     e[i] = ms(res.t0, res.t1); t[i] = ms(res.t0, res.t.tFirst)
                 }
@@ -202,8 +224,8 @@ case "bench":
         }
         func med(_ a: [Double]) -> Double { let s = a.sorted(); return s[s.count / 2] }
         let mean = { (a: [Double]) in a.reduce(0, +) / Double(a.count) }
-        print(String(format: "ABBA spec %d vs %d: e2e mean %.2f -> %.2f ms (%.1f%%), median paired delta %.2f ms; ttft median delta %.2f ms",
-                     abT, aT, mean(plainE), mean(specE), 100 * (mean(specE) / mean(plainE) - 1), med(dE), med(dT)))
+        print(String(format: "ABBA spec %@%d vs %@%d: e2e mean %.2f -> %.2f ms (%.1f%%), median paired delta %.2f ms; ttft median delta %.2f ms",
+                     (bL ? "l" : "") + (bWide ? "w" : ""), abT, (aL ? "l" : "") + (aWide ? "w" : ""), aT, mean(plainE), mean(specE), 100 * (mean(specE) / mean(plainE) - 1), med(dE), med(dT)))
         exit(0)
     }
     print("engine\tvariant\tmode\tprompt_idx\trep\te2e_ms\tttft_ms\tprefill_tokens\tgen_tokens\tdecode_tok_s\ttext")
@@ -255,8 +277,14 @@ case "run":
     let prefixFile = cacheDir + "/prefix-" + String(UInt64(bitPattern: Int64(prefixToks.reduce(Int64(1469598103934665603)) { ($0 ^ Int64($1)) &* 1099511628211 })), radix: 16) + ".kv"
     _ = hasher
     let hadPrefix = args.flags.contains("no-prefix-cache") ? false : (engine.loadPrefix(path: prefixFile) == prefixToks)
+    if !args.flags.contains("no-ildraft") {
+        try? engine.loadLearnedDrafter(path: args.get("ildraft", resolveAsset(nil, env: "INSTANTLLM_ILDRAFT", name: "ildraft.bin")))
+    }
     let tInit = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
     let ids = tok.encodeChat(system: system, user: prompt)
+    if ids.count >= prefixToks.count + 5 {
+        engine.setDraftContext(prompt: Array(ids[prefixToks.count..<(ids.count - 5)]), text: prompt, encode: tok.encode)
+    }
     let out = FileHandle.standardOutput
     defer {
         if args.flags.contains("verbose") {

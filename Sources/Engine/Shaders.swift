@@ -309,6 +309,8 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
         if (stop) {
             st->done = 1;
             nrows_s = 0;
+        } else if (st->pad3) {
+            nrows_s = 0;                         // k_ildraft drafts and embeds the next rows
         } else {
             nrows_s = -1;
             have_s = st->step;
@@ -371,6 +373,371 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
 }
 
 
+// ---------------------------------------------------------------------------------------------
+// Learned drafter (reference: tools/draft/ildraft.py). Per drafted token: candidates from the n-gram
+// table (top-M continuations of every known context order of TAIL + output), self-repetition,
+// prompt lookup, the request's TF-IDF neighbours' outputs and the copy candidates; 53 features per
+// candidate, an MLP scorer, argmax (smallest token on ties). Runs after k_commit_spec (which skips
+// its own drafting when st->pad3 is set). One threadgroup of 1024 threads.
+
+struct DraftMeta {
+    uint ngky_off, ngky_n, ngvl_off, ngvl_n, ngnx_off, ngnx_n, cptk_off, cptk_n;
+    uint cpc1_off, cpc1_n, cpc2_off, cpc2_n, mlp_off, mlp_n, pad0, pad1;
+    uint cfgN, cfgM, cfgMAXM, cfgH;
+};
+#define DR_MAXP 256
+#define DR_MAXCOPY 256
+#define DR_MAXNB 16
+#define DR_NBSEQ 80
+#define DR_MAXAS 1024
+struct DraftReq {
+    int np, ncopy, nnb, nas;
+    int P[DR_MAXP];
+    int copyTok[DR_MAXCOPY];
+    int copyInP[DR_MAXCOPY];
+    float nbScore[DR_MAXNB];
+    int nbOff[DR_MAXNB + 1];
+    int nbTok[DR_MAXNB * DR_NBSEQ];
+    int asTok[DR_MAXAS];
+    float asMax[DR_MAXAS];
+    int asCnt[DR_MAXAS];
+};
+#define DR_F 53
+#define DR_RAW (85 + DR_MAXCOPY)
+
+inline int dr_tail(int i) { return i == 0 ? 151645 : (i == 1 ? 198 : (i == 2 ? 151644 : (i == 3 ? 77091 : 198))); }
+
+inline int dr_find_u32(device const uint2* a, int n, uint key) {   // sorted {key, value} pairs
+    int lo = 0, hi = n;
+    while (lo < hi) { const int mid = (lo + hi) >> 1; if (a[mid].x < key) lo = mid + 1; else hi = mid; }
+    return (lo < n && a[lo].x == key) ? lo : -1;
+}
+inline int dr_find_int(device const int* a, int n, int key) {
+    int lo = 0, hi = n;
+    while (lo < hi) { const int mid = (lo + hi) >> 1; if (a[mid] < key) lo = mid + 1; else hi = mid; }
+    return (lo < n && a[lo] == key) ? lo : -1;
+}
+
+kernel void k_ildraft(device const uchar* tab [[buffer(0)]], constant DraftMeta& dm [[buffer(1)]],
+                      device const uchar* tflg [[buffer(2)]], device const DraftReq& rq [[buffer(3)]],
+                      device State* st [[buffer(4)]], device const int* out_tokens [[buffer(5)]],
+                      device int* drafts [[buffer(6)]], device const wtype* E [[buffer(7)]],
+                      device const half2* ESB [[buffer(8)]], device float* x [[buffer(9)]],
+                      uint tid [[thread_index_in_threadgroup]], uint lane [[thread_index_in_simdgroup]],
+                      uint sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    threadgroup int ob[OB_MAX + 16];
+    threadgroup int dist_tot[7], dist_fn[7];
+    threadgroup int s_long, s_supp3, s_supp10, s_toplong, s_entlow;
+    threadgroup int self_tok, self_n, pr_n, pr_cnt, pr_e[32];
+    threadgroup int pm[DR_MAXP];
+    threadgroup int vote_tok[DR_MAXNB], vote_n[DR_MAXNB];
+    threadgroup float s_c1, s_c2;
+    threadgroup int s_firstun, s_ticks;
+    threadgroup int raw[DR_RAW];
+    threadgroup int uniq[DR_RAW];
+    threadgroup atomic_int nuniq;
+    threadgroup float bsc[32];
+    threadgroup int btk[32];
+    threadgroup int s_draft, s_stop, s_nd;
+    threadgroup int next_rows[16];
+    device const ulong* ngky = (device const ulong*)(tab + dm.ngky_off);
+    device const uint2* ngvl = (device const uint2*)(tab + dm.ngvl_off);
+    device const uint2* ngnx = (device const uint2*)(tab + dm.ngnx_off);
+    device const uint2* cptk = (device const uint2*)(tab + dm.cptk_off);
+    device const uint2* cpc1 = (device const uint2*)(tab + dm.cpc1_off);
+    device const uchar* cpc2 = tab + dm.cpc2_off;
+    device const float* mlp = (device const float*)(tab + dm.mlp_off);
+    const int HN = int(dm.cfgH);
+    const int have = st->step;
+    const int w0 = max(0, have - OB_MAX);
+    for (int i = w0 + int(tid); i < have; i += 1024) ob[i - w0] = out_tokens[i];
+    if (tid == 0) {
+        next_rows[0] = out_tokens[have - 1];
+        s_nd = 0; s_stop = 0;
+        int tk = 0;
+        for (int i = 0; i < have; ++i) tk += tflg[out_tokens[i]] & 7;
+        s_ticks = tk;
+    }
+    const int first_out = out_tokens[0];
+    const int T = st->tspec;
+    const int K = st->pad2 ? 0 : T - 1;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (int d = 0; d < K; ++d) {
+        if (s_stop) break;
+        const int Lo = have - w0 + d;          // tokens of the output window in ob
+        const int Lfull = have + d;            // full output length
+        const int L = 5 + Lo;                  // ctx = TAIL + out
+        // ---- phase A: sources ----
+        if (sg == 0) {
+            if (lane < 6) {
+                const int n = int(lane) + 1;
+                int tot = -1, fn = 0;
+                if (n <= int(dm.cfgN) && n <= L) {
+                    ulong h = 0xcbf29ce484222325ul;
+                    h ^= ulong(n); h *= 0x100000001b3ul;
+                    for (int i = L - n; i < L; ++i) {
+                        const uint t = uint(i < 5 ? dr_tail(i) : ob[i - 5]);
+                        for (int b = 0; b < 4; ++b) { h ^= ulong((t >> (8 * b)) & 0xffu); h *= 0x100000001b3ul; }
+                    }
+                    int lo = 0, hi = int(dm.ngky_n);
+                    while (lo < hi) { const int mid = (lo + hi) >> 1; if (ngky[mid] < h) lo = mid + 1; else hi = mid; }
+                    if (lo < int(dm.ngky_n) && ngky[lo] == h) { tot = int(ngvl[lo].x); fn = int(ngvl[lo].y); }
+                }
+                dist_tot[n] = tot; dist_fn[n] = fn;
+            }
+            simdgroup_barrier(mem_flags::mem_threadgroup);
+            if (lane == 0) {
+                int ln = 0, s3 = 0, s10 = 0;
+                for (int n = 1; n <= 6; ++n) if (dist_tot[n] >= 0) { ln = n; if (dist_tot[n] >= 3) s3 = n; if (dist_tot[n] >= 10) s10 = n; }
+                s_long = ln; s_supp3 = s3; s_supp10 = s10;
+                s_toplong = -1; s_entlow = 0;
+                if (ln > 0) {
+                    const int first = dist_fn[ln] >> 3, cnt = dist_fn[ln] & 7;
+                    const float tot = float(dist_tot[ln]);
+                    s_toplong = int(ngnx[first].x);
+                    float ent = 0.f;
+                    for (int r = 0; r < cnt; ++r) { const float pr = float(ngnx[first + r].y) / tot; ent -= pr * log(pr); }
+                    s_entlow = ent < 0.3f ? 1 : 0;
+                }
+            }
+        } else if (sg == 1) {
+            // self: longest suffix (<= MAXM) of the output seen earlier, most recent occurrence
+            int bestm = 0, beste = -1;
+            for (int e = int(lane) + 1; e <= Lo - 1; e += 32) {
+                int m = 0;
+                const int lim = min(min(int(dm.cfgMAXM), Lo - 1), e);
+                while (m < lim && ob[e - 1 - m] == ob[Lo - 1 - m]) m++;
+                if (m > bestm || (m == bestm && m > 0 && e > beste)) { bestm = m; beste = e; }
+            }
+            const int mx = simd_max(bestm);
+            const int ex = simd_max(bestm == mx && mx > 0 ? beste : -1);
+            if (lane == 0) { self_n = mx; self_tok = (mx > 0 && ex >= 0) ? ob[ex] : -1; }
+        } else if (sg == 2) {
+            // prompt lookup: all occurrences of the longest suffix (<= MAXM) of the output in P
+            const int np = rq.np;
+            int bestm = 0;
+            for (int e = int(lane) + 1; e <= np - 1; e += 32) {
+                int m = 0;
+                const int lim = min(min(int(dm.cfgMAXM), Lo), e);
+                while (m < lim && rq.P[e - 1 - m] == ob[Lo - 1 - m]) m++;
+                pm[e] = m;
+                bestm = max(bestm, m);
+            }
+            const int mx = simd_max(bestm);
+            simdgroup_barrier(mem_flags::mem_threadgroup);
+            if (lane == 0) {
+                int c = 0;
+                if (mx > 0) for (int e = 1; e <= np - 1 && c < 32; ++e) if (pm[e] == mx) pr_e[c++] = e;
+                pr_n = mx; pr_cnt = c;
+            }
+        } else if (sg >= 3 && sg < 3 + DR_MAXNB) {
+            // neighbour k: longest suffix (<= MAXM) of ctx in its sequence, first occurrence
+            const int k = int(sg) - 3;
+            int vt = -1, vn = 0;
+            if (k < rq.nnb) {
+                const int a = rq.nbOff[k], ls = rq.nbOff[k + 1] - a;
+                int bestm = 0, beste = 1 << 20;
+                for (int e = int(lane) + 1; e <= ls - 1; e += 32) {
+                    int m = 0;
+                    const int lim = min(min(int(dm.cfgMAXM), L), e);
+                    while (m < lim) {
+                        const int ci = L - 1 - m;
+                        const int c = ci < 5 ? dr_tail(ci) : ob[ci - 5];
+                        if (rq.nbTok[a + e - 1 - m] != c) break;
+                        m++;
+                    }
+                    if (m > bestm || (m == bestm && m > 0 && e < beste)) { bestm = m; beste = e; }
+                }
+                const int mx = simd_max(bestm);
+                const int ex = simd_min(bestm == mx && mx > 0 ? beste : (1 << 20));
+                if (mx > 0 && ex < (1 << 20)) { vt = rq.nbTok[a + ex]; vn = mx; }
+            }
+            if (lane == 0) { vote_tok[k] = vt; vote_n[k] = vn; }
+        } else if (sg == 3 + DR_MAXNB) {
+            // copy context: c1, c2, first unused prompt token
+            if (lane == 0) {
+                const int c_1 = L - 1 < 5 ? dr_tail(L - 1) : ob[L - 1 - 5];
+                const int c_2 = L - 2 < 5 ? dr_tail(L - 2) : ob[L - 2 - 5];
+                const int i1 = dr_find_u32(cpc1, int(dm.cpc1_n), uint(c_1));
+                s_c1 = i1 >= 0 ? as_type<float>(cpc1[i1].y) : 0.1f;
+                const ulong key = (ulong(uint(c_2)) << 32) | ulong(uint(c_1));
+                int lo = 0, hi = int(dm.cpc2_n);
+                while (lo < hi) { const int mid = (lo + hi) >> 1; if (*((device const ulong*)(cpc2 + 16 * mid)) < key) lo = mid + 1; else hi = mid; }
+                s_c2 = (lo < int(dm.cpc2_n) && *((device const ulong*)(cpc2 + 16 * lo)) == key) ? *((device const float*)(cpc2 + 16 * lo + 8)) : 0.1f;
+            }
+            int fu = 1 << 20;
+            for (int i = int(lane); i < rq.np; i += 32) {
+                const int xt = rq.P[i];
+                bool used = false;
+                for (int j = 0; j < Lo && !used; ++j) used = ob[j] == xt;
+                if (!used) {
+                    const int ci = dr_find_u32(cptk, int(dm.cptk_n), uint(xt));
+                    const float pr = ci >= 0 ? as_type<float>(cptk[ci].y) : 0.2f;
+                    if (pr > 0.3f) fu = min(fu, i);
+                }
+            }
+            fu = simd_min(fu);
+            if (lane == 0) s_firstun = fu < (1 << 20) ? rq.P[fu] : -1;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        // ---- phase B: raw candidate list, then unique tokens ----
+        const int ncopy = rq.ncopy;
+        const int nraw = 85 + ncopy;
+        for (int i = int(tid); i < nraw; i += 1024) {
+            int t = -1;
+            if (i < 36) {
+                const int n = i / 6 + 1, r = i % 6;
+                if (dist_tot[n] >= 0 && r < (dist_fn[n] & 7)) t = int(ngnx[(dist_fn[n] >> 3) + r].x);
+            } else if (i == 36) {
+                t = self_n > 0 ? self_tok : -1;
+            } else if (i < 53) {
+                t = vote_tok[i - 37];
+            } else if (i < 85) {
+                const int q = i - 53;
+                t = q < pr_cnt ? rq.P[pr_e[q]] : -1;
+            } else {
+                t = rq.copyTok[i - 85];
+            }
+            raw[i] = t;
+        }
+        if (tid == 0) atomic_store_explicit(&nuniq, 0, memory_order_relaxed);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (int i = int(tid); i < nraw; i += 1024) {
+            const int t = raw[i];
+            bool keep = t >= 0;
+            for (int j = 0; j < i && keep; ++j) keep = raw[j] != t;
+            if (keep) uniq[atomic_fetch_add_explicit(&nuniq, 1, memory_order_relaxed)] = t;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        const int nu = atomic_load_explicit(&nuniq, memory_order_relaxed);
+        // ---- phase C: features + MLP score per candidate ----
+        float score = -INFINITY;
+        int tok = 0x7fffffff;
+        if (int(tid) < nu) {
+            tok = uniq[tid];
+            float f[DR_F];
+            for (int i = 0; i < DR_F; ++i) f[i] = 0.f;
+            f[0] = 1.f;
+            const int ln = s_long;
+            for (int n = 1; n <= 6; ++n) {
+                if (dist_tot[n] < 0) continue;
+                const int first = dist_fn[n] >> 3, cnt = dist_fn[n] & 7;
+                int c = 0, rank = -1;
+                for (int r = 0; r < cnt; ++r) if (int(ngnx[first + r].x) == tok) { c = int(ngnx[first + r].y); rank = r; break; }
+                if (n == ln && rank == 1) f[13] = 1.f;
+                if (n == ln && rank >= 2) f[14] = 1.f;
+                if (c > 0) {
+                    const float p = float(c) / float(dist_tot[n]);
+                    f[6 + n] = p;
+                    if (n == ln) { f[1] = p; f[3] = float(n) / 6.f * p; f[4] = log(1.f + float(c)); }
+                    if (n == s_supp3) f[5] = p;
+                    if (n == s_supp10) f[6] = p;
+                }
+            }
+            if (tok == s_toplong) { f[2] = 1.f; if (s_entlow) f[15] = 1.f; }
+            if (self_n > 0 && tok == self_tok) { f[16] = float(self_n) / 4.f; f[17] = 1.f; f[18] = self_n >= 3 ? 1.f : 0.f; }
+            for (int q = 0; q < pr_cnt; ++q) {
+                if (rq.P[pr_e[q]] == tok) {
+                    f[19] = float(pr_n) / 4.f; f[20] = 1.f; f[21] = pr_n >= 2 ? 1.f : 0.f;
+                    if (q == 0) f[22] = 1.f;
+                }
+            }
+            const int nnb = max(1, rq.nnb);
+            float nbs = 0.f, nbm = 0.f, nbx = 0.f;
+            int nbc = 0;
+            for (int k = 0; k < rq.nnb; ++k) {
+                if (vote_tok[k] != tok) continue;
+                const float sk = rq.nbScore[k], mk = float(min(vote_n[k], 8)) / 8.f;
+                nbs += sk; nbm += sk * mk; nbc++; nbx = max(nbx, mk);
+                if (k == 0) { f[27] = 1.f; f[28] = mk; }
+            }
+            f[23] = nbs; f[24] = nbm; f[25] = float(nbc) / float(nnb); f[26] = nbx;
+            const int ci = dr_find_int(rq.copyTok, ncopy, tok);
+            bool usedt = false;
+            for (int j = 0; j < Lo && !usedt; ++j) usedt = ob[j] == tok;
+            const bool inp = ci >= 0 && rq.copyInP[ci] != 0;
+            if (ci >= 0) {
+                float pt = 0.3f;
+                if (inp) { const int pi = dr_find_u32(cptk, int(dm.cptk_n), uint(tok)); pt = pi >= 0 ? as_type<float>(cptk[pi].y) : 0.2f; }
+                f[33] = log(pt / (1.f - pt)) / 4.f;
+                f[34] = s_c1; f[35] = s_c2;
+                f[36] = usedt ? 0.f : 1.f;
+                f[37] = tok == s_firstun ? 1.f : 0.f;
+                f[38] = inp ? 0.f : 1.f;
+            }
+            f[29] = (tok == 151645 || tok == 151643) ? 1.f : 0.f;
+            f[30] = inp ? 1.f : 0.f;
+            f[31] = f[2] * min(1.f, 2.f * f[25]);
+            f[32] = f[17] * min(1.f, 2.f * f[25]);
+            f[39] = (Lfull > 0 && (first_out == 73594 || first_out == 13874)) ? 1.f : 0.f;
+            f[40] = (Lfull > 0 && first_out == 63) ? 1.f : 0.f;
+            const uint tf = tok < VOCAB ? uint(tflg[tok]) : 0u;
+            f[41] = (tf & 7u) > 0 ? 1.f : 0.f;
+            f[42] = (tf & 8u) != 0 ? 1.f : 0.f;
+            f[43] = float(s_ticks & 1);
+            f[44] = float(min(Lfull, 32)) / 32.f;
+            f[45] = usedt ? 1.f : 0.f;
+            const int ai = dr_find_int(rq.asTok, rq.nas, tok);
+            if (ai >= 0) { f[46] = rq.asMax[ai] / 4.f; f[47] = float(min(rq.asCnt[ai], 4)) / 4.f; }
+            // MLP: W2 . relu(W1 x + b1) + b2 + WL . x
+            device const float* W1 = mlp;
+            device const float* b1 = mlp + HN * DR_F;
+            device const float* W2 = b1 + HN;
+            const float b2 = W2[HN];
+            device const float* WL = W2 + HN + 1;
+            float sc = b2;
+            for (int i = 0; i < DR_F; ++i) sc += WL[i] * f[i];
+            for (int h = 0; h < HN; ++h) {
+                float a = b1[h];
+                for (int i = 0; i < DR_F; ++i) a += W1[h * DR_F + i] * f[i];
+                sc += W2[h] * max(a, 0.f);
+            }
+            score = sc;
+        }
+        // ---- phase D: argmax (highest score, then smallest token) ----
+        for (ushort off = 16; off > 0; off >>= 1) {
+            const float os = simd_shuffle_down(score, off);
+            const int ot = simd_shuffle_down(tok, off);
+            if (os > score || (os == score && ot < tok)) { score = os; tok = ot; }
+        }
+        if (lane == 0) { bsc[sg] = score; btk[sg] = tok; }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (sg == 0) {
+            score = bsc[lane]; tok = btk[lane];
+            for (ushort off = 16; off > 0; off >>= 1) {
+                const float os = simd_shuffle_down(score, off);
+                const int ot = simd_shuffle_down(tok, off);
+                if (os > score || (os == score && ot < tok)) { score = os; tok = ot; }
+            }
+            if (lane == 0) {
+                if (nu == 0 || tok == 0x7fffffff) { s_stop = 1; }
+                else {
+                    drafts[d] = tok;
+                    next_rows[d + 1] = tok;
+                    ob[Lo] = tok;
+                    s_nd = d + 1;
+                    s_ticks += tflg[tok] & 7;
+                    if (tok == st->eos0 || tok == st->eos1) s_stop = 1;
+                }
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    const int nd = s_nd;
+    if (tid == 0) {
+        for (int i = nd; i < T - 1; i++) { drafts[i] = -2; next_rows[i + 1] = 0; }
+        st->nver = T;
+        st->n = T;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (int r = 0; r < T; r++) {
+        const int t = next_rows[r];
+        for (uint i = tid; i < H; i += 1024) x[r * H + i] = embed_at(E, ESB, t, i);
+    }
+}
+
+
 // Causal attention for one (query head, token). Grid (14, n), 256 threads.
 #define MAXCTX_TG 2048
 kernel void k_attention(device const float* q [[buffer(0)]],
@@ -379,6 +746,7 @@ kernel void k_attention(device const float* q [[buffer(0)]],
                         device float* out [[buffer(3)]],
                         device const State* st [[buffer(4)]],
                         constant int& toff [[buffer(5)]],
+                        device half* outh [[buffer(6)]],      // the same output as fp16 (prefill GEMM input)
                         uint2 tgp [[threadgroup_position_in_grid]],
                         uint tid [[thread_index_in_threadgroup]],
                         uint lane [[thread_index_in_simdgroup]],
@@ -424,7 +792,11 @@ kernel void k_attention(device const float* q [[buffer(0)]],
     for (int s = p; s < L; s += 4) o += sc[s] * float(vb[(ulong)s * HD + d]);
     part[tid] = o;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (tid < HD) out[t * H + h * HD + tid] = (part[tid] + part[tid + 64] + part[tid + 128] + part[tid + 192]) / sum;
+    if (tid < HD) {
+        const float o = (part[tid] + part[tid + 64] + part[tid + 128] + part[tid + 192]) / sum;
+        out[t * H + h * HD + tid] = o;
+        outh[t * H + h * HD + tid] = half(o);
+    }
 }
 
 
@@ -1378,8 +1750,8 @@ GEMM2_ALL(4)
 // threadgroup memory per step and running matmul2d with activations read from device memory.
 // Partial tiles are reduced through threadgroup memory (deterministic), then the epilogue runs.
 #if FMT == 0 || FMT == 1 || FMT == 2
-template<int K, int MODE, int TT, int NS>
-inline void gemm3_body(device half* X, device const wtype* W, device const half2* SB,
+template<int K, int MODE, int TT, int NS, typename TX>
+inline void gemm3_core(TX tX, device const wtype* W, device const half2* SB,
                        device const float* bias, device float* outf, device half* outh,
                        device half* kc, device half* vc, device const float2* rope, device const State* st,
                        threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
@@ -1391,7 +1763,7 @@ inline void gemm3_body(device half* X, device const wtype* W, device const half2
     const uint r0 = tgp.x * 32;
     const int t0 = tgp.y * TT;
     threadgroup half* ws = Wsg + sg * 32 * BK;
-    auto tX = tensor(X + (ulong)t0 * K, dextents<int, 2>(K, TT), array<int, 2>({1, K}));
+
     auto tW = tensor(ws, dextents<int, 2>(BK, 32), array<int, 2>({1, BK}));
     constexpr auto desc = matmul2d_descriptor(TT, 32, BK, false, true, false, matmul2d_descriptor::mode::multiply_accumulate);
     matmul2d<desc, execution_simdgroup> op;
@@ -1521,6 +1893,41 @@ inline void gemm3_body(device half* X, device const wtype* W, device const half2
     }
 }
 
+template<int K, int MODE, int TT, int NS>
+inline void gemm3_body(device half* X, device const wtype* W, device const half2* SB,
+                       device const float* bias, device float* outf, device half* outh,
+                       device half* kc, device half* vc, device const float2* rope, device const State* st,
+                       threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
+    auto tX = tensor(X + (ulong)(tgp.y * TT) * K, dextents<int, 2>(K, TT), array<int, 2>({1, K}));
+    gemm3_core<K, MODE, TT, NS>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, Wsg, Os, tgp, tid, lane, sg);
+}
+
+// K = H GEMMs with the RMSNorm folded in: each threadgroup normalizes its TT rows of x into
+// threadgroup memory (simdgroup per row, no separate norm dispatch) and feeds them to matmul2d.
+template<int MODE, int TT, int NS>
+inline void gemm3f_body(device const float* x, device const float* wn, threadgroup half* Xs,
+                        device const wtype* W, device const half2* SB,
+                        device const float* bias, device float* outf, device half* outh,
+                        device half* kc, device half* vc, device const float2* rope, device const State* st,
+                        threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
+    const int t0 = tgp.y * TT, n = st->n;
+    for (int t = int(sg); t < TT; t += NS) {
+        if (t0 + t < n) {
+            device const float* xr = x + (t0 + t) * H;
+            float ss = 0.f;
+            for (int i = int(lane); i < H; i += 32) { const float v = xr[i]; ss += v * v; }
+            ss = simd_sum(ss);
+            const float scale = rsqrt(ss / float(H) + EPS);
+            for (int i = int(lane); i < H; i += 32) Xs[t * H + i] = half(xr[i] * scale * wn[i]);
+        } else {
+            for (int i = int(lane); i < H; i += 32) Xs[t * H + i] = 0.h;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    auto tX = tensor(Xs, dextents<int, 2>(H, TT), array<int, 2>({1, H}));
+    gemm3_core<H, MODE, TT, NS>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, Wsg, Os, tgp, tid, lane, sg);
+}
+
 #define GEMM3(NAME, K, MODE, TT, NS) \
 kernel void NAME(device half* X [[buffer(0)]], device const wtype* W [[buffer(1)]], \
                  device const half2* SB [[buffer(2)]], device const float* bias [[buffer(3)]], \
@@ -1530,7 +1937,7 @@ kernel void NAME(device half* X [[buffer(0)]], device const wtype* W [[buffer(1)
                  uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]], \
                  uint lane [[thread_index_in_simdgroup]], uint sg [[simdgroup_index_in_threadgroup]]) { \
     if (st->done || (int)(tgp.y * TT) >= st->n) return; \
-    constexpr int WB = NS * 32 * 64 * 2, OB = NS * TT * 32 * 4; \
+    constexpr int WB = NS * 32 * (K == H ? 32 : 64) * 2, OB = NS * TT * 32 * 4; \
     threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
     gemm3_body<K, MODE, TT, NS>(X, W, SB, bias, outf, outh, kc, vc, rope, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
 }
@@ -1543,6 +1950,131 @@ GEMM3_ALL(8)
 GEMM3_ALL(16)
 GEMM3_ALL(24)
 GEMM3_ALL(32)
+
+#define GEMM3F(NAME, MODE, TT, NS) \
+kernel void NAME(device half* X [[buffer(0)]], device const wtype* W [[buffer(1)]], \
+                 device const half2* SB [[buffer(2)]], device const float* bias [[buffer(3)]], \
+                 device float* outf [[buffer(4)]], device half* outh [[buffer(5)]], \
+                 device half* kc [[buffer(6)]], device half* vc [[buffer(7)]], \
+                 device const float2* rope [[buffer(8)]], device const State* st [[buffer(9)]], \
+                 device const float* xin [[buffer(10)]], device const float* wn [[buffer(11)]], \
+                 uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]], \
+                 uint lane [[thread_index_in_simdgroup]], uint sg [[simdgroup_index_in_threadgroup]]) { \
+    if (st->done || (int)(tgp.y * TT) >= st->n) return; \
+    constexpr int WB = NS * 32 * 32 * 2, OB = NS * TT * 32 * 4; \
+    threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
+    threadgroup half Xs[TT * H]; \
+    gemm3f_body<MODE, TT, NS>(xin, wn, Xs, W, SB, bias, outf, outh, kc, vc, rope, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
+}
+GEMM3F(k_g3f_qkv_8, 0, 8, 4)
+GEMM3F(k_g3f_gu_8, 2, 8, 4)
+
+#if FMT == 2
+// Prefill / wide-verify GEMM v4 (q4, experiments): RT-row tiles (16 or 32 rows), LPR = 32 / RT
+// lanes per row, each lane dequantizing 32 weights (16 bytes) per step; NS simdgroups split K.
+template<int K, int MODE, int TT, int NS, int RT>
+inline void gemm4_body(device half* X, device const uchar* W, device const half2* SB,
+                       device float* outf, device half* outh, device const State* st,
+                       threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
+    constexpr int LPR = 32 / RT;
+    constexpr int BK = 32 * LPR;
+    constexpr int NSTEP = K / BK / NS;
+    static_assert(NSTEP * BK * NS == K, "K must split evenly");
+    const int n = st->n;
+    const uint r0 = tgp.x * RT;
+    const int t0 = tgp.y * TT;
+    threadgroup half* ws = Wsg + sg * RT * BK;
+    auto tX = tensor(X + (ulong)t0 * K, dextents<int, 2>(K, TT), array<int, 2>({1, K}));
+    auto tW = tensor(ws, dextents<int, 2>(BK, RT), array<int, 2>({1, BK}));
+    constexpr auto desc = matmul2d_descriptor(TT, RT, BK, false, true, false, matmul2d_descriptor::mode::multiply_accumulate);
+    matmul2d<desc, execution_simdgroup> op;
+    auto cT = op.template get_destination_cooperative_tensor<decltype(tX), decltype(tW), float>();
+    for (int i = 0; i < cT.get_capacity(); i++) if (cT.is_valid_element(i)) cT[i] = 0.f;
+    const int row = lane % RT, part = lane / RT;
+    device const uchar* wrow = W + (ulong)(r0 + row) * (K / 2);
+    device const half2* sbrow = SB + (r0 + row) * (K / 64);
+    threadgroup half2* dst = (threadgroup half2*)(ws + row * BK + part * 32);
+    for (int i = 0; i < NSTEP; i++) {
+        const uint kb = (sg * NSTEP + i) * BK;
+        const uint kl = kb + part * 32;
+        const half2 sb = sbrow[kl / 64];
+        const half2 mul = half2(half(16.f * float(sb.x)));
+        const half2 add = half2(half(float(sb.y) - 16.f * float(sb.x)));
+        const uint4 wv = *((device const uint4*)(wrow + kl / 2));
+        for (int u = 0; u < 4; ++u) {
+            const uint v = wv[u];   // nibbles k = 0..7 of this word: pairs (0,4) (1,5) (2,6) (3,7)
+            const half2 p04 = as_type<half2>(((v << 6) & 0x03C003C0u) | 0x3C003C00u);
+            const half2 p15 = as_type<half2>(((v << 2) & 0x03C003C0u) | 0x3C003C00u);
+            const half2 p26 = as_type<half2>(((v >> 2) & 0x03C003C0u) | 0x3C003C00u);
+            const half2 p37 = as_type<half2>(((v >> 6) & 0x03C003C0u) | 0x3C003C00u);
+            dst[u * 4 + 0] = fma(half2(p04.x, p15.x), mul, add);
+            dst[u * 4 + 1] = fma(half2(p26.x, p37.x), mul, add);
+            dst[u * 4 + 2] = fma(half2(p04.y, p15.y), mul, add);
+            dst[u * 4 + 3] = fma(half2(p26.y, p37.y), mul, add);
+        }
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+        auto a = tX.template slice<BK, TT>(kb, 0);
+        op.run(a, tW, cT);
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);   // Os aliases the weight tiles
+    auto tO = tensor(Os + sg * TT * RT, dextents<int, 2>(RT, TT), array<int, 2>({1, RT}));
+    cT.store(tO);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    constexpr int NT = NS * 32;
+    if (MODE == 1) {
+        for (int w = tid; w < TT * RT; w += NT) {
+            const int t = w / RT, r = w % RT;
+            if (t0 + t >= n) continue;
+            float v = 0.f;
+            for (int q = 0; q < NS; ++q) v += Os[q * TT * RT + w];
+            outf[(t0 + t) * H + r0 + r] += v;
+        }
+    } else {
+        for (int w = tid; w < TT * (RT / 4); w += NT) {
+            const int t = w / (RT / 4), b = w % (RT / 4);
+            if (t0 + t >= n) continue;
+            float g0 = 0.f, g1 = 0.f, u0 = 0.f, u1 = 0.f;
+            for (int q = 0; q < NS; ++q) {
+                threadgroup const float* o = Os + q * TT * RT + t * RT + 4 * b;
+                g0 += o[0]; g1 += o[1]; u0 += o[2]; u1 += o[3];
+            }
+            const int u = (r0 / 4 + b) * 2;
+            outh[(t0 + t) * FF + u] = half(g0 / (1.f + exp(-g0)) * u0);
+            outh[(t0 + t) * FF + u + 1] = half(g1 / (1.f + exp(-g1)) * u1);
+        }
+    }
+}
+
+#define GEMM4(NAME, K, MODE, TT, NS, RT) \
+kernel void NAME(device half* X [[buffer(0)]], device const uchar* W [[buffer(1)]], \
+                 device const half2* SB [[buffer(2)]], device const float* bias [[buffer(3)]], \
+                 device float* outf [[buffer(4)]], device half* outh [[buffer(5)]], \
+                 device half* kc [[buffer(6)]], device half* vc [[buffer(7)]], \
+                 device const float2* rope [[buffer(8)]], device const State* st [[buffer(9)]], \
+                 uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]], \
+                 uint lane [[thread_index_in_simdgroup]], uint sg [[simdgroup_index_in_threadgroup]]) { \
+    if (st->done || (int)(tgp.y * TT) >= st->n) return; \
+    constexpr int WB = NS * 1024 * 2, OB = NS * TT * RT * 4; \
+    threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
+    gemm4_body<K, MODE, TT, NS, RT>(X, W, SB, outf, outh, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
+}
+#define GEMM4_ALL(TT) \
+GEMM4(k_g4_o_##TT##_16_2, H, 1, TT, 2, 16) \
+GEMM4(k_g4_o_##TT##_16_7, H, 1, TT, 7, 16) \
+GEMM4(k_g4_o_##TT##_32_4, H, 1, TT, 4, 32) \
+GEMM4(k_g4_o_##TT##_32_7, H, 1, TT, 7, 32) \
+GEMM4(k_g4_gu_##TT##_16_2, H, 2, TT, 2, 16) \
+GEMM4(k_g4_gu_##TT##_16_7, H, 2, TT, 7, 16) \
+GEMM4(k_g4_gu_##TT##_32_4, H, 2, TT, 4, 32) \
+GEMM4(k_g4_gu_##TT##_32_7, H, 2, TT, 7, 32) \
+GEMM4(k_g4_down_##TT##_16_4, FF, 1, TT, 4, 16) \
+GEMM4(k_g4_down_##TT##_16_2, FF, 1, TT, 2, 16) \
+GEMM4(k_g4_down_##TT##_32_4, FF, 1, TT, 4, 32) \
+GEMM4(k_g4_down_##TT##_32_8, FF, 1, TT, 8, 32)
+GEMM4_ALL(8)
+GEMM4_ALL(16)
+#endif
 
 // Tied lm_head on the Neural Accelerators for the rows of a wide verify pass: X = half(final
 // RMSNorm(x)), grid (VOCAB / 32), per-tile argmax partials like k_lm_head_T.

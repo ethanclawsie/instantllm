@@ -78,6 +78,9 @@ func serve(args: Args) -> Never {
 
     engine.specT = args.int("spec", engine.defaultSpecT)
     if engine.specT > 1 && (try? engine.loadDraftTable(path: resolveAsset(args.options["draft-table"], env: "INSTANTLLM_DRAFT", name: "ngram.bin"))) == nil { engine.specT = 1 }
+    if !args.flags.contains("no-ildraft") {
+        try? engine.loadLearnedDrafter(path: resolveAsset(args.options["ildraft"], env: "INSTANTLLM_ILDRAFT", name: "ildraft.bin"))
+    }
     // Warm everything once: pipelines, the system prefix in the KV cache, page-ins.
     _ = engine.generate(tok.encodeChat(system: defaultSystem, user: "list files"), maxNew: 4)
 
@@ -129,6 +132,10 @@ func serve(args: Args) -> Never {
         let maxNew = max(1, min(Int(hdr[1]), engine.maxSteps))
         let ids = tok.encodeChat(system: system, user: prompt)
         if ids.count + maxNew >= engine.maxContext { close(c); continue }
+        let prefixLen = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n").count
+        if ids.count >= prefixLen + 5 {
+            engine.setDraftContext(prompt: Array(ids[prefixLen..<(ids.count - 5)]), text: prompt, encode: tok.encode)
+        }
         engine.generate(ids, maxNew: maxNew) { t in
             let b = tok.tokenBytes(t)
             return b.count == 0 || writeAll(c, b.baseAddress!, b.count)

@@ -912,13 +912,23 @@ kernel void k_attention(device const float* q [[buffer(0)]],
     device const half* kb = kc + (ulong)g * st->maxctx * HD;
     device const half* vb = vc + (ulong)g * st->maxctx * HD;
     float m = -INFINITY;
-    for (int s = tid; s < L; s += 256) {
-        const int slot = (tm && s >= p0) ? p0 + prow[s - p0] : s;
-        device const half4* kr = (device const half4*)(kb + (ulong)slot * HD);
-        float a = 0.f;
-        for (int j = 0; j < 16; ++j) a += dot(float4(kr[j]), *((threadgroup const float4*)(qs + 4 * j)));
-        sc[s] = a;
-        m = max(m, a);
+    if (tm) {
+        for (int s = tid; s < L; s += 256) {
+            const int slot = s >= p0 ? p0 + prow[s - p0] : s;
+            device const half4* kr = (device const half4*)(kb + (ulong)slot * HD);
+            float a = 0.f;
+            for (int j = 0; j < 16; ++j) a += dot(float4(kr[j]), *((threadgroup const float4*)(qs + 4 * j)));
+            sc[s] = a;
+            m = max(m, a);
+        }
+    } else {
+        for (int s = tid; s < L; s += 256) {
+            device const half4* kr = (device const half4*)(kb + (ulong)s * HD);
+            float a = 0.f;
+            for (int j = 0; j < 16; ++j) a += dot(float4(kr[j]), *((threadgroup const float4*)(qs + 4 * j)));
+            sc[s] = a;
+            m = max(m, a);
+        }
     }
     m = simd_max(m);
     if (lane == 0) red[sg] = m;
@@ -936,7 +946,8 @@ kernel void k_attention(device const float* q [[buffer(0)]],
     const int d = tid & 63;
     const int p = tid >> 6;
     float o = 0.f;
-    for (int s = p; s < L; s += 4) o += sc[s] * float(vb[(ulong)((tm && s >= p0) ? p0 + prow[s - p0] : s) * HD + d]);
+    if (tm) { for (int s = p; s < L; s += 4) o += sc[s] * float(vb[(ulong)(s >= p0 ? p0 + prow[s - p0] : s) * HD + d]); }
+    else { for (int s = p; s < L; s += 4) o += sc[s] * float(vb[(ulong)s * HD + d]); }
     part[tid] = o;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < HD) {
@@ -1897,7 +1908,7 @@ GEMM2_ALL(4)
 // threadgroup memory per step and running matmul2d with activations read from device memory.
 // Partial tiles are reduced through threadgroup memory (deterministic), then the epilogue runs.
 #if FMT == 0 || FMT == 1 || FMT == 2
-template<int K, int MODE, int TT, int NS, typename TX>
+template<int K, int MODE, int TT, int NS, int BKP, typename TX>
 inline void gemm3_core(TX tX, device const wtype* W, device const half2* SB,
                        device const float* bias, device float* outf, device half* outh,
                        device half* kc, device half* vc, device const float2* rope, device const State* st,
@@ -1905,7 +1916,7 @@ inline void gemm3_core(TX tX, device const wtype* W, device const half2* SB,
                        threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
     // Each simdgroup takes a contiguous K range (whole cache lines of its 32 rows): K = 896 -> 7
     // steps of 32 columns, K = 4864 -> 19 steps of 64. Lane = row; w = (16 s)(1 + n/16) + (b - 16 s).
-    constexpr int BK = K == H ? 32 : 64;
+    constexpr int BK = BKP;
     constexpr int NSTEP = K / BK / NS;
     const int n = st->n;
     const uint r0 = tgp.x * 32;
@@ -2042,14 +2053,14 @@ inline void gemm3_core(TX tX, device const wtype* W, device const half2* SB,
     }
 }
 
-template<int K, int MODE, int TT, int NS>
+template<int K, int MODE, int TT, int NS, int BKP = (K == H ? 32 : 64)>
 inline void gemm3_body(device half* X, device const wtype* W, device const half2* SB,
                        device const float* bias, device float* outf, device half* outh,
                        device half* kc, device half* vc, device const float2* rope, device const State* st,
                        device const int* tree,
                        threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
     auto tX = tensor(X + (ulong)(tgp.y * TT) * K, dextents<int, 2>(K, TT), array<int, 2>({1, K}));
-    gemm3_core<K, MODE, TT, NS>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, tree, Wsg, Os, tgp, tid, lane, sg);
+    gemm3_core<K, MODE, TT, NS, BKP>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, tree, Wsg, Os, tgp, tid, lane, sg);
 }
 
 // K = H GEMMs with the RMSNorm folded in: each threadgroup normalizes its TT rows of x into
@@ -2076,7 +2087,7 @@ inline void gemm3f_body(device const float* x, device const float* wn, threadgro
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     auto tX = tensor(Xs, dextents<int, 2>(H, TT), array<int, 2>({1, H}));
-    gemm3_core<H, MODE, TT, NS>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, tree, Wsg, Os, tgp, tid, lane, sg);
+    gemm3_core<H, MODE, TT, NS, 32>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, tree, Wsg, Os, tgp, tid, lane, sg);
 }
 
 #define GEMM3(NAME, K, MODE, TT, NS) \

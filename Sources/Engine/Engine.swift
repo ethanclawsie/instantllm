@@ -26,6 +26,7 @@ public final class Engine {
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
     var pSpin: MTLComputePipelineState?
+
     var pCommitSpec: MTLComputePipelineState?
     var pLmhSketch: [Int: MTLComputePipelineState] = [:], pLmhExact: [Int: MTLComputePipelineState] = [:]
     var pLmhTau: MTLComputePipelineState?
@@ -45,6 +46,7 @@ public final class Engine {
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
     var pG3: [Int: [MTLComputePipelineState]] = [:]  // tokens per tile (8, 16, 32) -> [qkv, o, gu, down]
     var pG3Lmh: [Int: MTLComputePipelineState] = [:] // tokens per tile (8, 16) -> lm_head with argmax partials
+    var g3ns: [Int: Int] = [:]                        // K-splitting simdgroups of the K = 896 GEMMs per tile (default 4)
     var pG3F: [MTLComputePipelineState] = []          // [qkv, gu] with RMSNorm folded in, 8 tokens per tile
     /// Experiments: ILL_G4="o:16:2,gu:16:7,down:16:4" routes those GEMMs (q4, TT 8/16) to the v4
     /// kernels with RT-row tiles and NS K-splitting simdgroups.
@@ -259,16 +261,7 @@ public final class Engine {
         e.setBuffer(state, offset: 0, index: 9)
         if q4a { grid(e, 36, n, 64) } else if tFamily { grid(e, 36, n, 128) } else { grid(e, 36, n) }
         } else if part == 1 {
-        e.setComputePipelineState(pAttention)
-        e.setBuffer(q, offset: 0, index: 0)
-        e.setBuffer(kc, offset: kvOff, index: 1)
-        e.setBuffer(vc, offset: kvOff, index: 2)
-        e.setBuffer(attn, offset: 0, index: 3)
-        e.setBuffer(state, offset: 0, index: 4)
-        e.setBuffer(attnh, offset: 0, index: 6); e.setBuffer(treeBuf, offset: 0, index: 7)
-        var toff: Int32 = 0
-        e.setBytes(&toff, length: 4, index: 5)
-        grid(e, Dims.heads, n)
+        encodeAttention(e, kvOff: kvOff, rows: n, toff: 0)
         } else if part == 2 {
         e.setComputePipelineState(pOProj)
         w(e, TensorID.layer(l, TensorID.wo), 0)
@@ -328,7 +321,7 @@ public final class Engine {
             e.setBuffer(rope, offset: 0, index: 8)
             e.setBuffer(state, offset: 0, index: 9)
             e.setBuffer(treeBuf, offset: 0, index: 12)
-            grid(e, rows / 32, (n + tt - 1) / tt, 128)
+            grid(e, rows / 32, (n + tt - 1) / tt, kind == 3 ? 128 : 32 * (g3ns[tt] ?? 4))
             return
         }
         let tf = min(4, (n + 7) / 8)
@@ -387,22 +380,15 @@ public final class Engine {
             grid(e, n, 1)
             encodeG2(e, 0, a: xnh, wID: L(TensorID.wqkv), sbID: L(TensorID.wqkvSB), biasID: L(TensorID.bqkv), outf: q, outh: hh, kvOff: kvOff, rows: Dims.qkvRows, n: n)
         }
-        e.setComputePipelineState(pAttention)
-        e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
-        e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4); e.setBuffer(attnh, offset: 0, index: 6); e.setBuffer(treeBuf, offset: 0, index: 7)
         if l == Dims.layers - 1 && n > 1 && !allRows {
             // Last layer: only the last token's output is needed (the KV of all tokens is already
             // written by the QKV kernel), so attention, O and the MLP run for that token alone,
             // with the decode kernels on row n-1.
-            var toff = Int32(n - 1)
-            e.setBytes(&toff, length: 4, index: 5)
-            grid(e, Dims.heads, 1)
+            encodeAttention(e, kvOff: kvOff, rows: 1, toff: n - 1)
             encodeLastRowTail(e, l, n: n, kvOff: kvOff)
             return
         }
-        var toff: Int32 = 0
-        e.setBytes(&toff, length: 4, index: 5)
-        grid(e, Dims.heads, n)
+        encodeAttention(e, kvOff: kvOff, rows: n, toff: 0)
         encodeG2(e, 1, a: attnh, wID: L(TensorID.wo), sbID: L(TensorID.woSB), biasID: nil, outf: x, outh: hh, kvOff: kvOff, rows: Dims.hidden, n: n)
         if fused {
             encodeG3F(e, 2, normID: L(TensorID.mlpNorm), wID: L(TensorID.wgu), sbID: L(TensorID.wguSB), biasID: nil, outf: x, outh: hh, kvOff: kvOff, rows: 2 * Dims.ff, n: n)
@@ -413,6 +399,17 @@ public final class Engine {
             encodeG2(e, 2, a: xnh, wID: L(TensorID.wgu), sbID: L(TensorID.wguSB), biasID: nil, outf: x, outh: hh, kvOff: kvOff, rows: 2 * Dims.ff, n: n)
         }
         encodeG2(e, 3, a: hh, wID: L(TensorID.wd), sbID: L(TensorID.wdSB), biasID: nil, outf: x, outh: hh, kvOff: kvOff, rows: Dims.hidden, n: n)
+    }
+
+    /// Attention for `rows` rows starting at row `toff` of the pass (KV of layer at kvOff).
+    private func encodeAttention(_ e: MTLComputeCommandEncoder, kvOff: Int, rows: Int, toff t0: Int) {
+        e.setComputePipelineState(pAttention)
+        e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
+        e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
+        e.setBuffer(attnh, offset: 0, index: 6); e.setBuffer(treeBuf, offset: 0, index: 7)
+        var toff = Int32(t0)
+        e.setBytes(&toff, length: 4, index: 5)
+        grid(e, Dims.heads, rows)
     }
 
     /// QKV (kind 0) or gate/up (kind 2) GEMM with the RMSNorm of x folded in (n <= 8 rows).
@@ -537,12 +534,7 @@ public final class Engine {
             e.setBuffer(kc, offset: kvOff, index: 6); e.setBuffer(vc, offset: kvOff, index: 7)
             e.setBuffer(rope, offset: 0, index: 8); e.setBuffer(state, offset: 0, index: 9)
             grid(e, 36, 1, 32 * (32 / R))
-            e.setComputePipelineState(pAttention)
-            e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
-            e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4); e.setBuffer(attnh, offset: 0, index: 6); e.setBuffer(treeBuf, offset: 0, index: 7)
-            var toff: Int32 = 0
-            e.setBytes(&toff, length: 4, index: 5)
-            grid(e, Dims.heads, T)
+            encodeAttention(e, kvOff: kvOff, rows: T, toff: 0)
             e.setComputePipelineState(p[1])
             w(e, L(TensorID.wo), 0); w(e, L(TensorID.woSB), 1)
             e.setBuffer(attn, offset: 0, index: 2); e.setBuffer(x, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
@@ -577,10 +569,11 @@ public final class Engine {
         e.setComputePipelineState(pRmsRowsH)
         e.setBuffer(x, offset: 0, index: 0); w(e, TensorID.finalNorm, 1); e.setBuffer(xnh, offset: 0, index: 2); e.setBuffer(state, offset: 0, index: 3)
         grid(e, T, 1)
-        e.setComputePipelineState(pG3Lmh[T <= 8 ? 8 : 16]!)
+        let ltt = T <= 8 ? 8 : 16
+        e.setComputePipelineState(pG3Lmh[ltt]!)
         e.setBuffer(xnh, offset: 0, index: 0); w(e, TensorID.embed, 1); w(e, TensorID.embedSB, 2)
         e.setBuffer(pval, offset: 0, index: 3); e.setBuffer(pidx, offset: 0, index: 4); e.setBuffer(state, offset: 0, index: 5)
-        grid(e, Dims.vocab / 32, 1, 128)
+        grid(e, Dims.vocab / 32, 1, 32 * (g3ns[ltt] ?? 4))
         if commit { encodeCommitSpec(e) }
     }
 

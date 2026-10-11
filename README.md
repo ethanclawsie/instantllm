@@ -75,18 +75,22 @@ checkpoint; mlx-lm uses the original weights, as we do.)
 - **~5 fused kernels per layer** (vs ~500 dispatches per token in llama.cpp and MLX): RMSNorm is
   folded into the matrix-vector kernels, bias + RoPE + KV-cache write into the QKV epilogue,
   SiLU(gate)*up into the gate/up kernel, residual adds into O and down.
-- **Exact speculative decoding**: a drafter on the GPU proposes the next two tokens from, in order,
-  a repetition of the output so far, an n-gram table of the model's own outputs (built from ~23K
-  synthetic command requests, disjoint from the benchmark prompts) and the prompt. One pass over
-  the weights verifies [last token, two drafts] together (1.2x the cost of a single-token step,
-  since the multi-token kernels unpack each weight once) and keeps the longest matching prefix:
-  ~1.7 tokens per pass on commands. The verify kernels compile with strict floating point, so the
-  3-token and 1-token kernels agree bit for bit and the output is identical to plain greedy
-  decoding (checked on 220 prompts, all three formats).
-- **The decode loop never returns to the CPU**: the lm_head kernel reduces argmax candidates on the
-  GPU, a commit kernel accepts drafts, records tokens in shared memory, drafts the next ones and
-  embeds them for the next pass. The CPU only encodes up to two passes ahead and polls the shared
-  token buffer.
+- **Exact speculative decoding with draft trees on the Neural Accelerators**: a learned drafter
+  runs on the GPU between passes (a Metal port of `tools/draft/ildraft.py`). It scores candidates
+  from an n-gram table of the model's own outputs (~23K synthetic command requests, disjoint from
+  the benchmark prompts), the outputs of the 16 most similar training requests, the prompt and the
+  output so far, using 53 features and a small MLP. From these it builds a best-first tree of 15
+  drafts. One 16-row pass on the Neural Accelerators verifies the whole tree (rows cost almost
+  nothing there: 3.8 ms for 16 rows, against 2.5 ms for a single-token step), and the longest
+  accepted path is kept: ~3 tokens per pass on commands. When drafts stop being accepted
+  (unpredictable text) the passes shrink to 8-row chains. Tree rows attend to their ancestors in
+  the same order as sequential decoding, and every pass shape shares the same kernels, so the
+  output is bit-identical to decoding one token at a time with those kernels (checked on 200
+  held-out prompts in all three formats).
+- **The decode loop never returns to the CPU**: the lm_head reduces argmax candidates on the GPU,
+  a commit kernel walks the accepted path and records tokens in shared memory, and the drafter
+  embeds the next pass's rows. The CPU only prepares the drafter's per-request context (while the
+  GPU prefills), encodes one pass ahead and polls the shared token buffer.
 - **4-bit weights, quantized with error compensation** (GPTQ-style, activation-weighted) into an
   affine group-64 format, including the tied lm_head: 278 MB per token, the minimum of the field.
   Multi-token passes unpack nibbles exactly into fp16 and use packed half2 FMAs.
@@ -120,9 +124,12 @@ models/fetch.sh                                   # downloads the HF weights (+ 
 # -> killall node
 ```
 
-Speculative decoding needs the draft table, built from the shipped corpus of model outputs
-(`tools/draft/README.md`): `instantllm ngram tools/draft/corpus-q4.jsonl --out models/ill/ngram.bin`.
-Without it the engine decodes token by token.
+Speculative decoding uses two tables, both made from the shipped corpus of model outputs
+(`tools/draft/README.md`). The learned drafter's table ships as `tools/draft/ildraft-q4.bin`: copy
+it to `models/ill/ildraft.bin`. The n-gram table, which the drafter falls back to for requests
+without a prompt context, is built with
+`instantllm ngram tools/draft/corpus-q4.jsonl --out models/ill/ngram.bin`. Without either table,
+the engine decodes token by token.
 
 `convert --quant FILE` takes pre-quantized codes from the GPTQ-style pipeline (the published
 results use it; its scripts are being cleaned up into `tools/quant/`). Plain `convert --format q4`

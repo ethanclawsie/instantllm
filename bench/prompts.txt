@@ -1,0 +1,20 @@
+list all files larger than 100MB in my home directory
+find all python files modified in the last 7 days
+show which process is listening on port 8080
+count lines of code in all swift files recursively
+compress the logs folder into a tar.gz archive
+kill all processes named node
+show disk usage of each folder in the current directory sorted by size
+replace foo with bar in all .txt files in this directory
+show the last 50 lines of /var/log/system.log and keep following it
+create a new git branch called feature/login and switch to it
+undo the last git commit but keep the changes
+download https://example.com/file.zip and unzip it
+find and delete all .DS_Store files recursively
+show my public IP address
+convert video.mov to mp4 with ffmpeg
+list the 10 largest files in the current directory
+show git log as a one-line graph for all branches
+rename all .jpeg files to .jpg in the current folder
+check which version of python3 is installed
+search for the string TODO in all javascript files excluding node_modules

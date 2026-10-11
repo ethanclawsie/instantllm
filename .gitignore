@@ -1,0 +1,7 @@
+.build/
+models/
+scratch/
+*.ill
+bench/competitors/*/.venv/
+bench/logs/
+.venv/

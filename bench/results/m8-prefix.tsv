@@ -1,0 +1,41 @@
+engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
+mlx_lm	8bit	prefix	0	0	54.985	18.081	19	9	216.87	`ls -lh /home/user`
+mlx_lm	8bit	prefix	1	0	105.189	17.633	16	20	217.05	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+mlx_lm	8bit	prefix	2	0	73.337	17.952	17	13	216.75	`lsof -i :8080`
+mlx_lm	8bit	prefix	3	0	128.195	17.547	14	25	216.95	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```
+mlx_lm	8bit	prefix	4	0	54.479	17.582	14	9	216.92	tar -czvf logs.tar.gz logs
+mlx_lm	8bit	prefix	5	0	37.718	14.629	10	6	216.68	`killall node`
+mlx_lm	8bit	prefix	6	0	45.751	18.059	18	7	216.80	`du -sh *`
+mlx_lm	8bit	prefix	7	0	146.937	17.831	17	29	216.92	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+mlx_lm	8bit	prefix	8	0	69.150	18.422	22	12	216.90	tail -n 50 /var/log/system.log
+mlx_lm	8bit	prefix	9	0	54.646	17.781	17	9	217.10	`git checkout -b feature/login`
+mlx_lm	8bit	prefix	10	0	49.935	17.659	14	8	217.02	`git reset --hard HEAD`
+mlx_lm	8bit	prefix	11	0	105.162	17.619	15	20	217.09	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+mlx_lm	8bit	prefix	12	0	106.979	17.628	14	20	212.73	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+mlx_lm	8bit	prefix	13	0	33.264	14.712	10	5	215.83	ipconfig -a
+mlx_lm	8bit	prefix	14	0	122.307	16.307	13	24	217.06	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`
+mlx_lm	8bit	prefix	15	0	73.724	17.682	16	13	214.28	ls -lh | sort -nr | head -10
+mlx_lm	8bit	prefix	16	0	50.189	17.907	16	8	216.98	`git log --oneline`
+mlx_lm	8bit	prefix	17	0	50.074	17.816	17	8	217.13	`rename *.jpeg *.jpg`
+mlx_lm	8bit	prefix	18	0	34.640	16.203	13	5	217.11	python3.8
+mlx_lm	8bit	prefix	19	0	64.271	17.984	17	11	216.18	`grep -r "TODO" *.js`
+mlx_lm	8bit	prefix	0	1	55.024	18.089	19	9	216.68	`ls -lh /home/user`
+mlx_lm	8bit	prefix	1	1	105.460	17.663	16	20	216.47	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+mlx_lm	8bit	prefix	2	1	73.317	17.851	17	13	216.41	`lsof -i :8080`
+mlx_lm	8bit	prefix	3	1	128.257	17.521	14	25	216.77	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```
+mlx_lm	8bit	prefix	4	1	54.427	17.532	14	9	216.93	tar -czvf logs.tar.gz logs
+mlx_lm	8bit	prefix	5	1	37.607	14.555	10	6	217.01	`killall node`
+mlx_lm	8bit	prefix	6	1	45.686	17.965	18	7	216.55	`du -sh *`
+mlx_lm	8bit	prefix	7	1	147.141	17.791	17	29	216.52	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+mlx_lm	8bit	prefix	8	1	69.137	18.322	22	12	216.56	tail -n 50 /var/log/system.log
+mlx_lm	8bit	prefix	9	1	54.847	17.850	17	9	216.33	`git checkout -b feature/login`
+mlx_lm	8bit	prefix	10	1	49.883	17.593	14	8	216.88	`git reset --hard HEAD`
+mlx_lm	8bit	prefix	11	1	105.361	17.660	15	20	216.72	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+mlx_lm	8bit	prefix	12	1	105.146	17.567	14	20	217.00	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+mlx_lm	8bit	prefix	13	1	32.980	14.585	10	5	217.57	ipconfig -a
+mlx_lm	8bit	prefix	14	1	122.335	16.149	13	24	216.66	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`
+mlx_lm	8bit	prefix	15	1	73.100	17.725	16	13	216.77	ls -lh | sort -nr | head -10
+mlx_lm	8bit	prefix	16	1	49.895	17.626	16	8	217.02	`git log --oneline`
+mlx_lm	8bit	prefix	17	1	50.289	17.824	17	8	215.71	`rename *.jpeg *.jpg`
+mlx_lm	8bit	prefix	18	1	35.564	16.482	13	5	209.74	python3.8
+mlx_lm	8bit	prefix	19	1	66.020	18.188	17	11	209.13	`grep -r "TODO" *.js`

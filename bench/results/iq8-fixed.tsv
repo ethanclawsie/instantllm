@@ -1,0 +1,41 @@
+engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
+instantllm	q8	fixed	0	0	98.373	6.099	19	32	336.0	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+instantllm	q8	fixed	1	0	96.902	5.649	16	32	339.7	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
+instantllm	q8	fixed	2	0	97.500	6.109	17	32	339.2	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+instantllm	q8	fixed	3	0	79.730	5.755	14	32	419.1	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```<|im_end|>\n<|endoftext|>I'm sorry, but
+instantllm	q8	fixed	4	0	101.667	5.890	14	32	323.7	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+instantllm	q8	fixed	5	0	96.927	5.686	10	32	339.8	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+instantllm	q8	fixed	6	0	97.170	6.109	18	32	340.4	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+instantllm	q8	fixed	7	0	76.150	6.299	17	32	443.9	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
+instantllm	q8	fixed	8	0	106.435	6.143	22	32	309.1	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+instantllm	q8	fixed	9	0	97.085	6.120	17	32	340.8	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+instantllm	q8	fixed	10	0	92.131	5.746	14	32	358.9	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist
+instantllm	q8	fixed	11	0	97.346	5.686	15	32	338.2	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+instantllm	q8	fixed	12	0	96.892	5.675	14	32	339.9	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+instantllm	q8	fixed	13	0	96.765	5.785	10	32	340.7	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+instantllm	q8	fixed	14	0	82.920	5.676	13	32	401.3	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
+instantllm	q8	fixed	15	0	110.124	5.663	16	32	296.8	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+instantllm	q8	fixed	16	0	92.346	5.670	16	32	357.7	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+instantllm	q8	fixed	17	0	101.486	6.105	17	32	325.0	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist
+instantllm	q8	fixed	18	0	96.658	5.757	13	32	341.0	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+instantllm	q8	fixed	19	0	110.773	6.081	17	32	296.1	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+instantllm	q8	fixed	0	1	97.324	6.103	19	32	339.8	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+instantllm	q8	fixed	1	1	96.797	5.590	16	32	339.9	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
+instantllm	q8	fixed	2	1	97.211	6.092	17	32	340.2	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+instantllm	q8	fixed	3	1	78.518	5.687	14	32	425.7	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```<|im_end|>\n<|endoftext|>I'm sorry, but
+instantllm	q8	fixed	4	1	101.297	5.672	14	32	324.2	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+instantllm	q8	fixed	5	1	96.706	5.721	10	32	340.7	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+instantllm	q8	fixed	6	1	97.341	6.133	18	32	339.9	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+instantllm	q8	fixed	7	1	74.604	6.125	17	32	452.7	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
+instantllm	q8	fixed	8	1	106.564	6.167	22	32	308.8	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+instantllm	q8	fixed	9	1	97.288	6.114	17	32	340.0	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+instantllm	q8	fixed	10	1	92.178	5.722	14	32	358.6	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist
+instantllm	q8	fixed	11	1	96.847	5.749	15	32	340.3	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+instantllm	q8	fixed	12	1	96.942	5.723	14	32	339.8	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+instantllm	q8	fixed	13	1	96.876	5.705	10	32	340.0	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+instantllm	q8	fixed	14	1	83.310	5.786	13	32	399.9	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
+instantllm	q8	fixed	15	1	110.509	5.664	16	32	295.7	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+instantllm	q8	fixed	16	1	92.299	5.715	16	32	358.0	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+instantllm	q8	fixed	17	1	101.845	6.100	17	32	323.8	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist
+instantllm	q8	fixed	18	1	97.182	5.735	13	32	339.0	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+instantllm	q8	fixed	19	1	111.070	6.092	17	32	295.3	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,

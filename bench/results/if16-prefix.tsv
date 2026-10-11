@@ -1,0 +1,41 @@
+engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
+instantllm	f16	prefix	0	0	53.328	9.901	19	9	184.2	`ls -lh /home/user`
+instantllm	f16	prefix	1	0	88.109	9.781	16	20	242.6	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+instantllm	f16	prefix	2	0	53.474	10.008	17	13	276.1	`lsof -i :8080`
+instantllm	f16	prefix	3	0	96.579	9.786	14	25	276.5	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```
+instantllm	f16	prefix	4	0	53.196	9.776	14	9	184.3	tar -czvf logs.tar.gz logs
+instantllm	f16	prefix	5	0	35.909	9.777	10	6	191.3	`killall node`
+instantllm	f16	prefix	6	0	44.770	10.029	18	7	172.7	`du -sh *`
+instantllm	f16	prefix	7	0	122.782	10.029	17	29	248.3	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+instantllm	f16	prefix	8	0	71.032	10.121	22	12	180.6	tail -n 50 /var/log/system.log
+instantllm	f16	prefix	9	0	53.481	10.005	17	9	184.0	`git checkout -b feature/login`
+instantllm	f16	prefix	10	0	44.574	9.817	14	8	201.4	`git reset --hard HEAD`
+instantllm	f16	prefix	11	0	96.447	9.739	15	20	219.1	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+instantllm	f16	prefix	12	0	87.774	9.715	14	20	243.4	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+instantllm	f16	prefix	13	0	27.251	9.822	10	5	229.5	ipconfig -a
+instantllm	f16	prefix	14	0	105.267	9.823	13	24	241.0	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`
+instantllm	f16	prefix	15	0	79.215	9.749	16	13	172.7	ls -lh | sort -nr | head -10
+instantllm	f16	prefix	16	0	35.993	9.849	16	8	267.8	`git log --oneline`
+instantllm	f16	prefix	17	0	62.089	9.940	17	8	134.2	`rename *.jpeg *.jpg`
+instantllm	f16	prefix	18	0	27.339	9.941	13	5	229.9	python3.8
+instantllm	f16	prefix	19	0	70.653	9.958	17	11	164.8	`grep -r 'TODO' *.js`
+instantllm	f16	prefix	0	1	53.348	9.936	19	9	184.3	`ls -lh /home/user`
+instantllm	f16	prefix	1	1	88.274	9.691	16	20	241.8	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+instantllm	f16	prefix	2	1	53.428	9.996	17	13	276.3	`lsof -i :8080`
+instantllm	f16	prefix	3	1	96.697	9.812	14	25	276.2	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```
+instantllm	f16	prefix	4	1	53.329	9.902	14	9	184.2	tar -czvf logs.tar.gz logs
+instantllm	f16	prefix	5	1	35.834	9.751	10	6	191.7	`killall node`
+instantllm	f16	prefix	6	1	44.752	10.043	18	7	172.9	`du -sh *`
+instantllm	f16	prefix	7	1	122.742	9.933	17	29	248.2	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+instantllm	f16	prefix	8	1	71.017	10.100	22	12	180.6	tail -n 50 /var/log/system.log
+instantllm	f16	prefix	9	1	53.437	9.994	17	9	184.2	`git checkout -b feature/login`
+instantllm	f16	prefix	10	1	44.733	9.933	14	8	201.2	`git reset --hard HEAD`
+instantllm	f16	prefix	11	1	96.511	9.756	15	20	219.0	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+instantllm	f16	prefix	12	1	89.431	10.138	14	20	239.6	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+instantllm	f16	prefix	13	1	27.190	9.751	10	5	229.4	ipconfig -a
+instantllm	f16	prefix	14	1	105.328	9.815	13	24	240.8	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`
+instantllm	f16	prefix	15	1	79.359	9.841	16	13	172.6	ls -lh | sort -nr | head -10
+instantllm	f16	prefix	16	1	37.326	9.924	16	8	255.5	`git log --oneline`
+instantllm	f16	prefix	17	1	62.078	9.957	17	8	134.3	`rename *.jpeg *.jpg`
+instantllm	f16	prefix	18	1	27.155	9.696	13	5	229.1	python3.8
+instantllm	f16	prefix	19	1	70.714	9.956	17	11	164.6	`grep -r 'TODO' *.js`

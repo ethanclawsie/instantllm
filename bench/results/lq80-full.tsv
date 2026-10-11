@@ -1,0 +1,41 @@
+engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
+llama.cpp	q8_0	full	0	0	68.672	15.398	63	12	206.48	```sh\nls -lh /home/user\n```
+llama.cpp	q8_0	full	1	0	113.323	15.339	60	20	193.91	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+llama.cpp	q8_0	full	2	0	73.555	15.532	61	13	206.81	`lsof -i :8080`
+llama.cpp	q8_0	full	3	0	120.797	15.290	58	23	208.52	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```
+llama.cpp	q8_0	full	4	0	54.072	15.318	58	9	206.43	tar -czvf logs.tar.gz logs
+llama.cpp	q8_0	full	5	0	39.371	15.101	54	6	206.02	`killall node`
+llama.cpp	q8_0	full	6	0	44.380	15.410	62	7	207.11	`du -sh *`
+llama.cpp	q8_0	full	7	0	125.921	15.331	61	24	207.97	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```
+llama.cpp	q8_0	full	8	0	68.800	15.649	66	12	206.96	tail -n 50 /var/log/system.log
+llama.cpp	q8_0	full	9	0	68.352	15.411	61	12	207.78	```sh\ngit checkout -b feature/login\n```
+llama.cpp	q8_0	full	10	0	49.017	15.151	58	8	206.70	`git reset --hard HEAD`
+llama.cpp	q8_0	full	11	0	106.446	15.290	59	20	208.43	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+llama.cpp	q8_0	full	12	0	106.366	15.248	58	20	208.52	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+llama.cpp	q8_0	full	13	0	34.634	15.027	54	5	204.00	ipconfig -a
+llama.cpp	q8_0	full	14	0	116.180	15.154	57	22	207.87	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4
+llama.cpp	q8_0	full	15	0	73.258	15.365	60	13	207.28	ls -lh | sort -nr | head -10
+llama.cpp	q8_0	full	16	0	49.289	15.277	60	8	205.81	`git log --oneline`
+llama.cpp	q8_0	full	17	0	39.855	15.339	61	6	203.95	rename *.jpeg *.jpg
+llama.cpp	q8_0	full	18	0	34.802	15.229	57	5	204.35	python3.8
+llama.cpp	q8_0	full	19	0	64.563	15.304	61	11	203.01	`grep -r 'TODO' *.js`
+llama.cpp	q8_0	full	0	1	68.589	15.517	63	12	207.27	```sh\nls -lh /home/user\n```
+llama.cpp	q8_0	full	1	1	106.965	15.313	60	20	207.30	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+llama.cpp	q8_0	full	2	1	73.703	15.649	61	13	206.70	`lsof -i :8080`
+llama.cpp	q8_0	full	3	1	121.166	15.246	58	23	207.70	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```
+llama.cpp	q8_0	full	4	1	54.023	15.275	58	9	206.46	tar -czvf logs.tar.gz logs
+llama.cpp	q8_0	full	5	1	39.405	15.069	54	6	205.46	`killall node`
+llama.cpp	q8_0	full	6	1	44.858	15.467	62	7	204.15	`du -sh *`
+llama.cpp	q8_0	full	7	1	125.856	15.480	61	24	208.38	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```
+llama.cpp	q8_0	full	8	1	68.649	15.642	66	12	207.52	tail -n 50 /var/log/system.log
+llama.cpp	q8_0	full	9	1	68.421	15.387	61	12	207.42	```sh\ngit checkout -b feature/login\n```
+llama.cpp	q8_0	full	10	1	49.344	15.211	58	8	205.08	`git reset --hard HEAD`
+llama.cpp	q8_0	full	11	1	106.601	15.339	59	20	208.19	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+llama.cpp	q8_0	full	12	1	106.621	15.241	58	20	207.92	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+llama.cpp	q8_0	full	13	1	34.671	15.007	54	5	203.41	ipconfig -a
+llama.cpp	q8_0	full	14	1	115.896	15.163	57	22	208.47	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4
+llama.cpp	q8_0	full	15	1	73.202	15.407	60	13	207.63	ls -lh | sort -nr | head -10
+llama.cpp	q8_0	full	16	1	49.156	15.309	60	8	206.81	`git log --oneline`
+llama.cpp	q8_0	full	17	1	39.740	15.354	61	6	205.03	rename *.jpeg *.jpg
+llama.cpp	q8_0	full	18	1	34.773	15.197	57	5	204.33	python3.8
+llama.cpp	q8_0	full	19	1	64.016	15.440	61	11	205.86	`grep -r 'TODO' *.js`

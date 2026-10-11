@@ -1,0 +1,41 @@
+engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
+llama.cpp	fp16	full	0	0	105.384	16.520	63	12	123.79	```sh\nls -lh /home/user\n```
+llama.cpp	fp16	full	1	0	170.620	16.304	60	20	123.12	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+llama.cpp	fp16	full	2	0	113.777	16.689	61	13	123.60	`lsof -i :8080`
+llama.cpp	fp16	full	3	0	195.564	16.454	58	23	122.83	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```
+llama.cpp	fp16	full	4	0	81.134	16.357	58	9	123.50	tar -czvf logs.tar.gz logs
+llama.cpp	fp16	full	5	0	56.765	16.166	54	6	123.15	`killall node`
+llama.cpp	fp16	full	6	0	65.864	16.477	62	7	121.49	`du -sh *`
+llama.cpp	fp16	full	7	0	201.806	16.488	61	24	124.11	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```
+llama.cpp	fp16	full	8	0	105.787	16.788	66	12	123.60	tail -n 50 /var/log/system.log
+llama.cpp	fp16	full	9	0	105.099	16.361	61	12	123.96	```sh\ngit checkout -b feature/login\n```
+llama.cpp	fp16	full	10	0	73.131	16.326	58	8	123.23	`git reset --hard HEAD`
+llama.cpp	fp16	full	11	0	169.595	16.338	59	20	123.97	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+llama.cpp	fp16	full	12	0	171.089	16.496	58	20	122.90	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+llama.cpp	fp16	full	13	0	48.921	16.229	54	5	122.35	ipconfig -a
+llama.cpp	fp16	full	14	0	185.406	16.305	57	22	124.19	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4
+llama.cpp	fp16	full	15	0	113.716	16.401	60	13	123.31	ls -lh | sort -nr | head -10
+llama.cpp	fp16	full	16	0	73.252	16.469	60	8	123.28	`git log --oneline`
+llama.cpp	fp16	full	17	0	57.024	16.401	61	6	123.08	rename *.jpeg *.jpg
+llama.cpp	fp16	full	18	0	48.928	16.343	57	5	122.76	python3.8
+llama.cpp	fp16	full	19	0	97.420	16.468	61	11	123.53	`grep -r 'TODO' *.js`
+llama.cpp	fp16	full	0	1	105.361	16.554	63	12	123.86	```sh\nls -lh /home/user\n```
+llama.cpp	fp16	full	1	1	169.339	16.440	60	20	124.26	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+llama.cpp	fp16	full	2	1	113.679	16.531	61	13	123.52	`lsof -i :8080`
+llama.cpp	fp16	full	3	1	193.561	16.348	58	23	124.14	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```
+llama.cpp	fp16	full	4	1	81.103	16.421	58	9	123.68	tar -czvf logs.tar.gz logs
+llama.cpp	fp16	full	5	1	56.728	16.209	54	6	123.40	`killall node`
+llama.cpp	fp16	full	6	1	65.140	16.566	62	7	123.52	`du -sh *`
+llama.cpp	fp16	full	7	1	202.099	16.531	61	24	123.94	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```
+llama.cpp	fp16	full	8	1	105.562	16.805	66	12	123.93	tail -n 50 /var/log/system.log
+llama.cpp	fp16	full	9	1	105.343	16.498	61	12	123.81	```sh\ngit checkout -b feature/login\n```
+llama.cpp	fp16	full	10	1	73.183	16.460	58	8	123.41	`git reset --hard HEAD`
+llama.cpp	fp16	full	11	1	169.701	16.376	59	20	123.92	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+llama.cpp	fp16	full	12	1	169.455	16.337	58	20	124.09	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+llama.cpp	fp16	full	13	1	48.747	16.211	54	5	122.94	ipconfig -a
+llama.cpp	fp16	full	14	1	185.812	16.300	57	22	123.88	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4
+llama.cpp	fp16	full	15	1	113.731	16.515	60	13	123.44	ls -lh | sort -nr | head -10
+llama.cpp	fp16	full	16	1	73.076	16.367	60	8	123.44	`git log --oneline`
+llama.cpp	fp16	full	17	1	57.065	16.469	61	6	123.16	rename *.jpeg *.jpg
+llama.cpp	fp16	full	18	1	48.900	16.275	57	5	122.61	python3.8
+llama.cpp	fp16	full	19	1	97.318	16.481	61	11	123.70	`grep -r 'TODO' *.js`

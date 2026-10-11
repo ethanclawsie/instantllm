@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-llama.cpp	q4_0	fixed	0	0	127.633	13.143	19	32	270.77	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_0	fixed	1	0	121.901	7.613	16	32	271.25	`find . -type f -name "*.py" -mtime -7`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>
-llama.cpp	q4_0	fixed	2	0	127.150	13.006	17	32	271.59	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-llama.cpp	q4_0	fixed	3	0	121.459	7.268	14	32	271.48	`find . -type f -name "*.swift" -exec echo {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that
-llama.cpp	q4_0	fixed	4	0	145.760	7.291	14	32	223.88	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_0	fixed	5	0	126.590	7.794	10	32	260.95	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	q4_0	fixed	6	0	127.320	13.136	18	32	271.49	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_0	fixed	7	0	127.488	12.974	17	32	270.71	```sh\nfind . -type f -name "*.txt" -exec sed 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_0	fixed	8	0	126.838	12.291	22	32	270.63	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_0	fixed	9	0	128.401	13.537	17	32	269.88	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_0	fixed	10	0	121.813	7.374	14	32	270.89	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	q4_0	fixed	11	0	122.000	7.476	15	32	270.69	`curl -O https://example.com/file.zip`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_0	fixed	12	0	121.378	7.250	14	32	271.63	rm -rf .DS_Store<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_0	fixed	13	0	121.496	6.817	10	32	270.32	`curl ifconfig.me`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_0	fixed	14	0	123.658	7.148	13	32	266.07	`ffmpeg -i video.mov -c copy video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I
-llama.cpp	q4_0	fixed	15	0	122.633	7.634	16	32	269.57	ls -lh | head -n 10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
-llama.cpp	q4_0	fixed	16	0	121.432	7.611	16	32	272.36	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	q4_0	fixed	17	0	127.287	13.049	17	32	271.36	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	q4_0	fixed	18	0	121.153	7.052	13	32	271.69	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	q4_0	fixed	19	0	127.648	13.037	17	32	270.48	`grep -r "TODO" *.js --exclude=node_modules`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>
-llama.cpp	q4_0	fixed	0	1	127.858	13.223	19	32	270.43	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_0	fixed	1	1	122.444	7.620	16	32	269.98	`find . -type f -name "*.py" -mtime -7`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>
-llama.cpp	q4_0	fixed	2	1	127.488	12.936	17	32	270.62	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-llama.cpp	q4_0	fixed	3	1	121.866	7.307	14	32	270.60	`find . -type f -name "*.swift" -exec echo {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that
-llama.cpp	q4_0	fixed	4	1	121.918	7.351	14	32	270.58	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_0	fixed	5	1	121.151	6.871	10	32	271.26	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	q4_0	fixed	6	1	127.638	13.123	18	32	270.71	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_0	fixed	7	1	127.215	12.970	17	32	271.35	```sh\nfind . -type f -name "*.txt" -exec sed 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_0	fixed	8	1	129.751	12.292	22	32	263.92	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_0	fixed	9	1	127.578	13.030	17	32	270.63	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_0	fixed	10	1	122.059	7.407	14	32	270.38	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	q4_0	fixed	11	1	121.973	7.489	15	32	270.78	`curl -O https://example.com/file.zip`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_0	fixed	12	1	123.078	7.301	14	32	267.75	rm -rf .DS_Store<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_0	fixed	13	1	126.663	6.903	10	32	258.85	`curl ifconfig.me`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_0	fixed	14	1	122.251	7.176	13	32	269.39	`ffmpeg -i video.mov -c copy video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I
-llama.cpp	q4_0	fixed	15	1	122.747	7.626	16	32	269.28	ls -lh | head -n 10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
-llama.cpp	q4_0	fixed	16	1	122.384	7.611	16	32	270.10	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	q4_0	fixed	17	1	134.793	12.971	17	32	254.47	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	q4_0	fixed	18	1	121.651	7.198	13	32	270.85	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	q4_0	fixed	19	1	130.794	13.125	17	32	263.45	`grep -r "TODO" *.js --exclude=node_modules`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>
+llama.cpp	q4_0	fixed	0	0	125.869	13.123	19	32	274.95	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_0	fixed	1	0	120.211	7.533	16	32	275.12	`find . -type f -name "*.py" -mtime -7`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>
+llama.cpp	q4_0	fixed	2	0	125.596	12.965	17	32	275.24	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+llama.cpp	q4_0	fixed	3	0	119.717	7.293	14	32	275.74	`find . -type f -name "*.swift" -exec echo {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that
+llama.cpp	q4_0	fixed	4	0	120.850	7.215	14	32	272.80	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_0	fixed	5	0	119.724	6.835	10	32	274.61	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	q4_0	fixed	6	0	125.985	13.080	18	32	274.57	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_0	fixed	7	0	138.055	12.964	17	32	247.82	```sh\nfind . -type f -name "*.txt" -exec sed 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_0	fixed	8	0	125.125	12.474	22	32	275.19	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_0	fixed	9	0	125.989	12.956	17	32	274.26	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_0	fixed	10	0	120.107	7.219	14	32	274.61	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	q4_0	fixed	11	0	123.108	7.504	15	32	268.16	`curl -O https://example.com/file.zip`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_0	fixed	12	0	120.229	7.477	14	32	274.94	rm -rf .DS_Store<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_0	fixed	13	0	119.546	6.878	10	32	275.14	`curl ifconfig.me`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_0	fixed	14	0	120.970	7.091	13	32	272.22	`ffmpeg -i video.mov -c copy video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I
+llama.cpp	q4_0	fixed	15	0	119.774	7.581	16	32	276.31	ls -lh | head -n 10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+llama.cpp	q4_0	fixed	16	0	119.761	7.532	16	32	276.22	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	q4_0	fixed	17	0	125.398	12.932	17	32	275.64	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	q4_0	fixed	18	0	119.717	6.983	13	32	274.98	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	q4_0	fixed	19	0	125.123	12.928	17	32	276.31	`grep -r "TODO" *.js --exclude=node_modules`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>
+llama.cpp	q4_0	fixed	0	1	126.689	13.097	19	32	272.91	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_0	fixed	1	1	120.136	7.572	16	32	275.40	`find . -type f -name "*.py" -mtime -7`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>
+llama.cpp	q4_0	fixed	2	1	126.703	13.014	17	32	272.67	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+llama.cpp	q4_0	fixed	3	1	119.394	7.307	14	32	276.57	`find . -type f -name "*.swift" -exec echo {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that
+llama.cpp	q4_0	fixed	4	1	119.602	7.196	14	32	275.79	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_0	fixed	5	1	118.817	6.775	10	32	276.68	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	q4_0	fixed	6	1	125.664	13.011	18	32	275.18	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_0	fixed	7	1	125.458	12.959	17	32	275.56	```sh\nfind . -type f -name "*.txt" -exec sed 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_0	fixed	8	1	124.334	12.233	22	32	276.54	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_0	fixed	9	1	125.011	12.997	17	32	276.75	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_0	fixed	10	1	119.622	7.189	14	32	275.72	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	q4_0	fixed	11	1	120.069	7.455	15	32	275.28	`curl -O https://example.com/file.zip`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_0	fixed	12	1	119.458	7.258	14	32	276.29	rm -rf .DS_Store<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_0	fixed	13	1	118.680	6.765	10	32	277.00	`curl ifconfig.me`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_0	fixed	14	1	119.437	7.013	13	32	275.74	`ffmpeg -i video.mov -c copy video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I
+llama.cpp	q4_0	fixed	15	1	119.638	7.532	16	32	276.53	ls -lh | head -n 10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+llama.cpp	q4_0	fixed	16	1	119.734	7.578	16	32	276.40	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	q4_0	fixed	17	1	125.056	12.933	17	32	276.48	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	q4_0	fixed	18	1	119.276	7.004	13	32	276.12	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	q4_0	fixed	19	1	125.020	12.891	17	32	276.47	`grep -r "TODO" *.js --exclude=node_modules`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>

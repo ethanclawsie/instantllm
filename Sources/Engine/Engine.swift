@@ -138,7 +138,13 @@ public final class Engine {
 
         mark("residency")
         let opts = MTLCompileOptions()
-        opts.preprocessorMacros = ["FMT": NSNumber(value: model.format.rawValue)]
+        var macros: [String: NSObject] = ["FMT": NSNumber(value: model.format.rawValue)]
+        // Experiments: ILL_DEFINES="A B=2" adds preprocessor macros to the shader compile.
+        for d in (ProcessInfo.processInfo.environment["ILL_DEFINES"] ?? "").split(separator: " ") {
+            let kv = d.split(separator: "=", maxSplits: 1)
+            macros[String(kv[0])] = NSNumber(value: kv.count > 1 ? Int(kv[1]) ?? 1 : 1)
+        }
+        opts.preprocessorMacros = macros
         opts.mathMode = ProcessInfo.processInfo.environment["ILL_MATH"] == "safe" ? .safe : (ProcessInfo.processInfo.environment["ILL_MATH"] == "relaxed" ? .relaxed : .fast)
         opts.languageVersion = .version4_0
         let tLib0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
@@ -712,7 +718,7 @@ public final class Engine {
     /// The stop token is not returned. `logitsOut`, if given, receives the logits of the first token.
     /// Decode steps per command buffer and how many steps the CPU encodes ahead.
     public var chunk = 1
-    public var depth = 12
+    public var depth = Int(ProcessInfo.processInfo.environment["ILL_DEPTH"] ?? "") ?? 2
     public var firstChunk = 0
 
     @discardableResult
@@ -765,7 +771,12 @@ public final class Engine {
         var stopped = false
         var got = 0
         while !stopped && got < maxNew {
-            if encoded < maxNew && encoded - got <= depth {
+            // Command buffers the GPU has finished: the prefill plus committed passes (speculative)
+            // or one per token (plain). Staying only `depth` ahead keeps the GPU fed (a pass takes
+            // ~3 ms, encoding one ~0.1 ms) without a long tail of early-exit passes after the stop,
+            // which the next request would otherwise wait for.
+            let done = specActive ? 1 + Int(ill_volatile_load(s + 10)) : got
+            if encoded < maxNew && encoded - done <= depth {
                 (cb, e) = newEncoder()
                 let end = min(maxNew, encoded + chunk)
                 // a speculative pass yields 1...specT tokens; a plain step exactly one

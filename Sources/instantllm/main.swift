@@ -19,7 +19,7 @@ struct Args {
                 let key = String(a.dropFirst(2))
                 if let eq = key.firstIndex(of: "=") {
                     options[String(key[..<eq])] = String(key[key.index(after: eq)...])
-                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep", "sketch"].contains(key) {
+                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep", "sketch", "ttft-breakdown"].contains(key) {
                     flags.insert(key)
                 } else if let v = it.next() {
                     options[key] = v
@@ -213,6 +213,10 @@ case "bench":
             let res = request(p)
             totPasses += res.t.passes; totAcc += res.t.accepted; totGen += res.gen
             if args.flags.contains("verbose") { FileHandle.standardError.write("p\(i) candidates(last pass) \(engine.lastSketchCandidates())\n".data(using: .utf8)!) }
+            if args.flags.contains("ttft-breakdown") {
+                FileHandle.standardError.write(String(format: "p%d n=%d tokenize %.3f  encode+commit %.3f  commit->first %.3f ms\n", i, res.t.prefillTokens,
+                    ms(res.t0, res.t.tStart), ms(res.t.tStart, res.t.tCommit), ms(res.t.tCommit, res.t.tFirst)).data(using: .utf8)!)
+            }
             let ttftMs = ms(res.t0, res.t.tFirst)
             let decTs = res.gen > 1 ? Double(res.gen - 1) / (ms(res.t.tFirst, res.t.tEnd) / 1e3) : Double.nan
             e2e.append(ms(res.t0, res.t1)); ttft.append(ttftMs); if res.gen > 1 { dec.append(decTs) }

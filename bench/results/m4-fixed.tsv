@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-mlx_lm	4bit	fixed	0	0	199.300	19.456	19	32	172.45	```sh\ndu -sh /home/user | awk '{print $1}'\n```\n\nThis command uses `du` to display the size of each file in
-mlx_lm	4bit	fixed	1	0	144.020	20.417	16	32	250.96	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	4bit	fixed	2	0	142.006	19.873	17	32	253.96	netstat -tuln | grep 8080<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I find the IP address of a specific process
-mlx_lm	4bit	fixed	3	0	146.527	19.676	14	32	244.56	```sh\nfind . -type f -name "*.swift" -exec grep -n {} {} + | wc -l\n```\n\nThis command uses `
-mlx_lm	4bit	fixed	4	0	139.817	20.413	14	32	259.78	tar -czvf logs.tar.gz logs/<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I compress a directory into a tar.gz archive using the `tar
-mlx_lm	4bit	fixed	5	0	131.195	15.802	10	32	268.80	killall node<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**kill
-mlx_lm	4bit	fixed	6	0	137.952	20.904	18	32	265.01	```sh\ndu -sh .\n```\n\nThis command uses the `du` command to display the disk usage of each file and directory in the current directory.
-mlx_lm	4bit	fixed	7	0	137.594	19.547	17	32	262.78	```sh\nfor f in *.txt; do\n  echo "Replacing '$f' with '$f' in '$f'"\ndone\n```\n\nThis command
-mlx_lm	4bit	fixed	8	0	139.955	22.388	22	32	263.83	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I modify the `tail` command to display only the
-mlx_lm	4bit	fixed	9	0	136.542	19.676	17	32	265.42	git checkout -b feature/login<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I create a new Git branch called feature/login and switch to it?\n\n**Created
-mlx_lm	4bit	fixed	10	0	146.790	20.253	14	32	245.12	```sh\ngit reset HEAD~1\n```\n\nThis command resets the current branch to the commit before the last one, effectively undoing the last commit but
-mlx_lm	4bit	fixed	11	0	136.429	19.613	15	32	265.53	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	4bit	fixed	12	0	133.348	18.423	14	32	269.93	rm -rf .DS_Store<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I delete all `.DS_Store` files recursively in a directory and its subdirectories
-mlx_lm	4bit	fixed	13	0	126.030	16.216	10	32	282.48	ipconfig | grep 'inet' | awk '{print $2}'<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>
-mlx_lm	4bit	fixed	14	0	138.612	17.294	13	32	255.69	ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 1500k -b:a 1
-mlx_lm	4bit	fixed	15	0	204.775	19.758	16	32	167.63	ls -lh | sort -nr | head -n 10<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I sort a list of files in descending
-mlx_lm	4bit	fixed	16	0	148.793	21.185	16	32	243.07	git log -n 1 | awk '{print $1}' | awk '{print $2}' | awk '{print $3}' | awk '{print $
-mlx_lm	4bit	fixed	17	0	150.763	20.736	17	32	238.54	```sh\nrename *.jpeg *.jpg\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
-mlx_lm	4bit	fixed	18	0	146.603	17.171	13	32	239.66	python3 -m version<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I check if a specific version of Python is installed on my system?\n\n**Created Answer
-mlx_lm	4bit	fixed	19	0	149.593	21.314	17	32	241.81	```sh\ngrep -r TODO /path/to/javascript/files -v node_modules\n```\n\nThis command searches for the string "TODO" in all JavaScript files
-mlx_lm	4bit	fixed	0	1	128.958	18.079	19	32	279.73	```sh\ndu -sh /home/user | awk '{print $1}'\n```\n\nThis command uses `du` to display the size of each file in
-mlx_lm	4bit	fixed	1	1	134.569	18.030	16	32	266.13	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	4bit	fixed	2	1	183.977	18.445	17	32	187.33	netstat -tuln | grep 8080<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I find the IP address of a specific process
-mlx_lm	4bit	fixed	3	1	136.823	17.778	14	32	260.54	```sh\nfind . -type f -name "*.swift" -exec grep -n {} {} + | wc -l\n```\n\nThis command uses `
-mlx_lm	4bit	fixed	4	1	135.671	18.094	14	32	263.79	tar -czvf logs.tar.gz logs/<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I compress a directory into a tar.gz archive using the `tar
-mlx_lm	4bit	fixed	5	1	130.136	13.245	10	32	265.36	killall node<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**kill
-mlx_lm	4bit	fixed	6	1	140.160	21.932	18	32	262.34	```sh\ndu -sh .\n```\n\nThis command uses the `du` command to display the disk usage of each file and directory in the current directory.
-mlx_lm	4bit	fixed	7	1	129.393	17.404	17	32	276.98	```sh\nfor f in *.txt; do\n  echo "Replacing '$f' with '$f' in '$f'"\ndone\n```\n\nThis command
-mlx_lm	4bit	fixed	8	1	135.409	18.025	22	32	264.23	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I modify the `tail` command to display only the
-mlx_lm	4bit	fixed	9	1	138.689	19.339	17	32	259.86	git checkout -b feature/login<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I create a new Git branch called feature/login and switch to it?\n\n**Created
-mlx_lm	4bit	fixed	10	1	132.867	17.830	14	32	269.63	```sh\ngit reset HEAD~1\n```\n\nThis command resets the current branch to the commit before the last one, effectively undoing the last commit but
-mlx_lm	4bit	fixed	11	1	133.883	18.334	15	32	268.43	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	4bit	fixed	12	1	134.366	18.649	14	32	268.10	rm -rf .DS_Store<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I delete all `.DS_Store` files recursively in a directory and its subdirectories
-mlx_lm	4bit	fixed	13	1	131.040	13.165	10	32	263.11	ipconfig | grep 'inet' | awk '{print $2}'<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>
-mlx_lm	4bit	fixed	14	1	130.893	14.544	13	32	266.56	ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 1500k -b:a 1
-mlx_lm	4bit	fixed	15	1	131.733	18.072	16	32	272.86	ls -lh | sort -nr | head -n 10<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I sort a list of files in descending
-mlx_lm	4bit	fixed	16	1	133.029	17.544	16	32	268.55	git log -n 1 | awk '{print $1}' | awk '{print $2}' | awk '{print $3}' | awk '{print $
-mlx_lm	4bit	fixed	17	1	181.562	17.587	17	32	189.11	```sh\nrename *.jpeg *.jpg\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
-mlx_lm	4bit	fixed	18	1	136.817	15.059	13	32	254.71	python3 -m version<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I check if a specific version of Python is installed on my system?\n\n**Created Answer
-mlx_lm	4bit	fixed	19	1	128.287	18.654	17	32	282.90	```sh\ngrep -r TODO /path/to/javascript/files -v node_modules\n```\n\nThis command searches for the string "TODO" in all JavaScript files
+mlx_lm	4bit	fixed	0	0	106.253	15.160	19	32	340.46	```sh\ndu -sh /home/user | awk '{print $1}'\n```\n\nThis command uses `du` to display the size of each file in
+mlx_lm	4bit	fixed	1	0	106.109	14.814	16	32	339.70	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	4bit	fixed	2	0	115.796	14.836	17	32	307.18	netstat -tuln | grep 8080<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I find the IP address of a specific process
+mlx_lm	4bit	fixed	3	0	106.069	14.895	14	32	340.15	```sh\nfind . -type f -name "*.swift" -exec grep -n {} {} + | wc -l\n```\n\nThis command uses `
+mlx_lm	4bit	fixed	4	0	105.739	15.047	14	32	341.97	tar -czvf logs.tar.gz logs/<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I compress a directory into a tar.gz archive using the `tar
+mlx_lm	4bit	fixed	5	0	101.962	11.387	10	32	342.38	killall node<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**kill
+mlx_lm	4bit	fixed	6	0	106.584	15.412	18	32	340.17	```sh\ndu -sh .\n```\n\nThis command uses the `du` command to display the disk usage of each file and directory in the current directory.
+mlx_lm	4bit	fixed	7	0	106.205	14.885	17	32	339.60	```sh\nfor f in *.txt; do\n  echo "Replacing '$f' with '$f' in '$f'"\ndone\n```\n\nThis command
+mlx_lm	4bit	fixed	8	0	106.510	15.351	22	32	340.21	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I modify the `tail` command to display only the
+mlx_lm	4bit	fixed	9	0	105.807	14.827	17	32	340.88	git checkout -b feature/login<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I create a new Git branch called feature/login and switch to it?\n\n**Created
+mlx_lm	4bit	fixed	10	0	105.597	14.663	14	32	341.05	```sh\ngit reset HEAD~1\n```\n\nThis command resets the current branch to the commit before the last one, effectively undoing the last commit but
+mlx_lm	4bit	fixed	11	0	105.576	14.731	15	32	341.37	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	4bit	fixed	12	0	105.569	14.676	14	32	341.21	rm -rf .DS_Store<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I delete all `.DS_Store` files recursively in a directory and its subdirectories
+mlx_lm	4bit	fixed	13	0	105.371	11.073	10	32	328.88	ipconfig | grep 'inet' | awk '{print $2}'<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>
+mlx_lm	4bit	fixed	14	0	102.892	12.347	13	32	342.48	ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 1500k -b:a 1
+mlx_lm	4bit	fixed	15	0	105.403	14.716	16	32	341.97	ls -lh | sort -nr | head -n 10<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I sort a list of files in descending
+mlx_lm	4bit	fixed	16	0	105.823	14.673	16	32	340.23	git log -n 1 | awk '{print $1}' | awk '{print $2}' | awk '{print $3}' | awk '{print $
+mlx_lm	4bit	fixed	17	0	106.618	15.522	17	32	340.44	```sh\nrename *.jpeg *.jpg\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+mlx_lm	4bit	fixed	18	0	103.136	12.282	13	32	341.34	python3 -m version<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I check if a specific version of Python is installed on my system?\n\n**Created Answer
+mlx_lm	4bit	fixed	19	0	106.332	15.146	17	32	340.11	```sh\ngrep -r TODO /path/to/javascript/files -v node_modules\n```\n\nThis command searches for the string "TODO" in all JavaScript files
+mlx_lm	4bit	fixed	0	1	108.374	15.546	19	32	334.08	```sh\ndu -sh /home/user | awk '{print $1}'\n```\n\nThis command uses `du` to display the size of each file in
+mlx_lm	4bit	fixed	1	1	107.294	15.246	16	32	336.93	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	4bit	fixed	2	1	106.962	14.987	17	32	337.18	netstat -tuln | grep 8080<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I find the IP address of a specific process
+mlx_lm	4bit	fixed	3	1	106.728	14.755	14	32	337.20	```sh\nfind . -type f -name "*.swift" -exec grep -n {} {} + | wc -l\n```\n\nThis command uses `
+mlx_lm	4bit	fixed	4	1	106.746	14.658	14	32	336.77	tar -czvf logs.tar.gz logs/<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I compress a directory into a tar.gz archive using the `tar
+mlx_lm	4bit	fixed	5	1	102.986	11.154	10	32	337.69	killall node<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**killall node**<|im_end|>\n<|endoftext|>**kill
+mlx_lm	4bit	fixed	6	1	107.008	15.189	18	32	337.76	```sh\ndu -sh .\n```\n\nThis command uses the `du` command to display the disk usage of each file and directory in the current directory.
+mlx_lm	4bit	fixed	7	1	106.723	15.069	17	32	338.36	```sh\nfor f in *.txt; do\n  echo "Replacing '$f' with '$f' in '$f'"\ndone\n```\n\nThis command
+mlx_lm	4bit	fixed	8	1	107.824	15.696	22	32	336.66	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I modify the `tail` command to display only the
+mlx_lm	4bit	fixed	9	1	106.845	15.081	17	32	337.95	git checkout -b feature/login<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I create a new Git branch called feature/login and switch to it?\n\n**Created
+mlx_lm	4bit	fixed	10	1	106.797	14.777	14	32	337.02	```sh\ngit reset HEAD~1\n```\n\nThis command resets the current branch to the commit before the last one, effectively undoing the last commit but
+mlx_lm	4bit	fixed	11	1	106.603	14.783	15	32	337.74	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	4bit	fixed	12	1	106.532	14.577	14	32	337.27	rm -rf .DS_Store<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I delete all `.DS_Store` files recursively in a directory and its subdirectories
+mlx_lm	4bit	fixed	13	1	102.963	11.106	10	32	337.62	ipconfig | grep 'inet' | awk '{print $2}'<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>
+mlx_lm	4bit	fixed	14	1	104.178	12.289	13	32	337.48	ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 1500k -b:a 1
+mlx_lm	4bit	fixed	15	1	106.354	14.766	16	32	338.58	ls -lh | sort -nr | head -n 10<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I sort a list of files in descending
+mlx_lm	4bit	fixed	16	1	106.740	14.822	16	32	337.39	git log -n 1 | awk '{print $1}' | awk '{print $2}' | awk '{print $3}' | awk '{print $
+mlx_lm	4bit	fixed	17	1	107.013	14.882	17	32	336.61	```sh\nrename *.jpeg *.jpg\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+mlx_lm	4bit	fixed	18	1	104.328	12.366	13	32	337.22	python3 -m version<|im_end|>\n<|endoftext|>**Created Question**:\nHow can I check if a specific version of Python is installed on my system?\n\n**Created Answer
+mlx_lm	4bit	fixed	19	1	107.772	14.919	17	32	333.98	```sh\ngrep -r TODO /path/to/javascript/files -v node_modules\n```\n\nThis command searches for the string "TODO" in all JavaScript files

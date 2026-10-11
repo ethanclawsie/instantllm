@@ -11,23 +11,25 @@ runtime; that is the point.
 
 All engines run the same protocol (`docs/SPEC.md`): exact chat template, greedy decoding, at most
 64 new tokens, timed from the prompt string to the final text. Each engine is at its best
-configuration, keeping the system-prompt KV cache between requests ("prompt cached") and using its
-own fastest settings. Rounds are interleaved across engines so drift affects all equally.
+configuration and keeps the system-prompt KV cache between requests ("prompt cached"). Two rounds
+over the 20 prompts, engines interleaved round-robin so drift affects all of them equally.
 
-| median | **instantllm q4** | llama.cpp Q4_0 | mlx-lm 4bit |
-|---|---:|---:|---:|
-| time to first token (prompt cached) | **6.5 ms** | 10.0 ms | 21.8 ms |
-| decode | **262-273 tok/s** | 162-172 tok/s | 221-264 tok/s |
-| end to end, exactly 32 tokens | **118.6 ms** | 201.9 ms | 136.8 ms |
-| end to end, natural stop | **39.5 ms** | 65.1 ms | 99.5 ms |
-| cold: fresh process per request | **167 ms** | 479 ms | 3891 ms |
-| resident daemon + 1 ms C client (`ill`) | **22-33 ms** spawn to exit | - | - |
-| weights read per token | 278 MB | 346 MB | 278 MB |
+| median | **instantllm q4** | llama.cpp Q4_0 | llama.cpp Q4_K_M | mlx-lm 4bit |
+|---|---:|---:|---:|---:|
+| time to first token (prompt cached) | **5.4 ms** | 7.6 ms | 9.3 ms | 14.6 ms |
+| decode (32 tokens) | **372 tok/s** | 271 tok/s | 240 tok/s | 338 tok/s |
+| end to end, exactly 32 tokens | **88.0 ms** | 123.4 ms | 137.8 ms | 106.3 ms |
+| end to end, natural stop | **26.4 ms** | 43.3 ms | 70.6 ms | 61.8 ms |
+| end to end, whole prompt (no cache) | **28.8 ms** | 45.8 ms | 64.3 ms | 65.0 ms |
+| cold: fresh process per request | **70 ms** | 248 ms | - | 1897 ms |
+| resident daemon + 1 ms C client (`ill`) | **~23-30 ms** spawn to exit | - | - | - |
+| weights read per token | 278 MB | 346 MB | 392 MB | 278 MB |
 
-These numbers were measured while other heavy jobs shared the machine (CPU and memory bandwidth),
-which slows every engine; quiet-machine runs are faster for all of them (instantllm decodes at
-~360-385 tok/s quiet). Natural-stop end-to-end times also depend on how long each quantized model's
-answers are, so the fixed 32-token row is the like-for-like latency comparison.
+For real commands (natural stop) that is 1.6x faster than llama.cpp and 2.3x faster than mlx-lm;
+1.4x and 1.2x for a fixed 32-token generation, where answer length cannot differ. Exact speculative
+decoding (below) is on: it never changes the output, and helps most on command-shaped text (decoding
+past the end of a command, as the fixed-length row does, is mostly text the drafter has not seen).
+Raw results: `bench/results/*.tsv`; table: `bench/table.py`.
 
 ### Output quality (agreement with an fp32 reference of the original weights)
 
@@ -48,6 +50,11 @@ mlx-lm uses the original weights, as we do.)
 - **~5 fused kernels per layer** (vs ~500 dispatches per token in llama.cpp and MLX): RMSNorm is
   folded into the matrix-vector kernels, bias + RoPE + KV-cache write into the QKV epilogue,
   SiLU(gate)*up into the gate/up kernel, residual adds into O and down.
+- **Exact speculative decoding**: a GPU-resident n-gram table of the model's own outputs (built from
+  ~10K synthetic command requests, disjoint from the benchmark prompts) drafts the next token; one
+  pass over the weights verifies [last token, draft] together (about 1.1x the cost of a normal step,
+  since the multi-token kernels unpack each weight once), and the longest matching prefix is kept,
+  so the output is bit-identical to plain greedy decoding. ~1.5 tokens per pass on commands.
 - **The decode loop never returns to the CPU**: the lm_head kernel reduces argmax candidates on the
   GPU, a commit kernel picks the token, records it in shared memory and embeds it for the next step.
   The CPU only encodes ahead and polls the shared token buffer (one step per command buffer, so each
@@ -79,6 +86,9 @@ models/fetch.sh                                   # downloads the HF weights (+ 
 .build/release/ill "kill all processes named node"   # starts the daemon on first use
 # -> killall node
 ```
+
+Speculative decoding needs the draft table: `instantllm ngram corpus.jsonl --out models/ill/ngram.bin`
+(builds it from model outputs, see `tools/draft/`); without it the engine decodes token by token.
 
 `convert --quant FILE` takes pre-quantized codes from the GPTQ-style pipeline (the published
 results use it; its scripts are being cleaned up into `tools/quant/`). Plain `convert --format q4`

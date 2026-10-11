@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-instantllm	q4	full	0	0	22.512	7.211	63	9	522.9	`ls -lh /home/user`
-instantllm	q4	full	1	0	28.495	7.066	60	17	746.7	`find . -type f -name "*.py" -mtime +7`
-instantllm	q4	full	2	0	22.390	7.090	61	13	784.4	`lsof -i :8080`
-instantllm	q4	full	3	0	37.738	7.106	58	22	685.6	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
-instantllm	q4	full	4	0	22.442	7.123	58	9	522.3	tar -czvf logs.tar.gz logs
-instantllm	q4	full	5	0	16.153	7.022	54	6	547.6	`killall node`
-instantllm	q4	full	6	0	19.445	7.219	62	7	490.8	`du -sh *`
-instantllm	q4	full	7	0	47.125	7.193	61	29	701.2	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
-instantllm	q4	full	8	0	30.954	9.442	66	12	511.4	tail -n 50 /var/log/system.log
-instantllm	q4	full	9	0	22.477	7.164	61	9	522.5	`git checkout -b feature/login`
-instantllm	q4	full	10	0	19.359	7.122	58	8	572.1	`git reset --hard HEAD`
-instantllm	q4	full	11	0	37.911	7.131	59	20	617.3	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
-instantllm	q4	full	12	0	22.401	7.112	58	9	523.3	`rm -rf .DS_Store`
-instantllm	q4	full	13	0	10.075	7.035	54	3	658.2	ipconfig
-instantllm	q4	full	14	0	71.882	7.076	57	50	756.1	`ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 128k -b:a 128k -map 0:v -map 0:a output.mp4`
-instantllm	q4	full	15	0	28.578	7.142	60	17	746.5	`ls -l | sort -nr | head -n 10`
-instantllm	q4	full	16	0	16.313	7.156	60	8	764.5	`git log --oneline`
-instantllm	q4	full	17	0	25.529	7.157	61	8	381.0	`rename *.jpeg *.jpg`
-instantllm	q4	full	18	0	16.537	7.116	57	5	424.7	python3 -V
-instantllm	q4	full	19	0	28.948	7.204	61	11	460.1	`grep -r 'TODO' *.js`
-instantllm	q4	full	0	1	22.547	7.228	63	9	522.3	`ls -lh /home/user`
-instantllm	q4	full	1	1	28.508	7.036	60	17	745.2	`find . -type f -name "*.py" -mtime +7`
-instantllm	q4	full	2	1	22.444	7.178	61	13	786.1	`lsof -i :8080`
-instantllm	q4	full	3	1	37.734	7.129	58	22	686.2	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
-instantllm	q4	full	4	1	22.304	7.038	58	9	524.1	tar -czvf logs.tar.gz logs
-instantllm	q4	full	5	1	16.171	6.982	54	6	544.2	`killall node`
-instantllm	q4	full	6	1	19.461	7.204	62	7	489.6	`du -sh *`
-instantllm	q4	full	7	1	47.179	7.201	61	29	700.4	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
-instantllm	q4	full	8	1	30.924	9.425	66	12	511.7	tail -n 50 /var/log/system.log
-instantllm	q4	full	9	1	22.509	7.182	61	9	522.0	`git checkout -b feature/login`
-instantllm	q4	full	10	1	19.320	7.123	58	8	574.0	`git reset --hard HEAD`
-instantllm	q4	full	11	1	37.776	7.152	59	20	620.5	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
-instantllm	q4	full	12	1	22.590	7.072	58	9	515.6	`rm -rf .DS_Store`
-instantllm	q4	full	13	1	10.196	7.081	54	3	642.3	ipconfig
-instantllm	q4	full	14	1	72.894	7.118	57	50	745.0	`ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 128k -b:a 128k -map 0:v -map 0:a output.mp4`
-instantllm	q4	full	15	1	28.961	7.180	60	17	734.6	`ls -l | sort -nr | head -n 10`
-instantllm	q4	full	16	1	16.314	7.158	60	8	764.6	`git log --oneline`
-instantllm	q4	full	17	1	25.899	7.159	61	8	373.6	`rename *.jpeg *.jpg`
-instantllm	q4	full	18	1	16.470	7.126	57	5	428.4	python3 -V
-instantllm	q4	full	19	1	28.551	7.116	61	11	466.6	`grep -r 'TODO' *.js`
+instantllm	q4	full	0	0	19.810	7.244	63	9	636.7	`ls -lh /home/user`
+instantllm	q4	full	1	0	23.948	7.121	60	17	950.9	`find . -type f -name "*.py" -mtime +7`
+instantllm	q4	full	2	0	19.734	7.230	61	13	959.7	`lsof -i :8080`
+instantllm	q4	full	3	0	28.140	7.061	58	22	996.3	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
+instantllm	q4	full	4	0	23.519	7.107	58	9	487.5	tar -czvf logs.tar.gz logs
+instantllm	q4	full	5	0	15.169	6.978	54	6	610.5	`killall node`
+instantllm	q4	full	6	0	15.607	7.283	62	7	720.9	`du -sh *`
+instantllm	q4	full	7	0	37.125	7.297	61	29	938.8	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+instantllm	q4	full	8	0	17.887	9.492	66	12	1310.4	tail -n 50 /var/log/system.log
+instantllm	q4	full	9	0	23.066	7.258	61	9	506.1	`git checkout -b feature/login`
+instantllm	q4	full	10	0	11.174	7.070	58	8	1706.2	`git reset --hard HEAD`
+instantllm	q4	full	11	0	28.421	7.195	59	20	895.2	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+instantllm	q4	full	12	0	22.953	7.047	58	9	503.0	`rm -rf .DS_Store`
+instantllm	q4	full	13	0	10.994	6.958	54	3	495.7	ipconfig
+instantllm	q4	full	14	0	28.547	7.153	57	50	2290.5	`ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 128k -b:a 128k -map 0:v -map 0:a output.mp4`
+instantllm	q4	full	15	0	19.782	7.192	60	17	1271.0	`ls -l | sort -nr | head -n 10`
+instantllm	q4	full	16	0	15.518	7.257	60	8	847.4	`git log --oneline`
+instantllm	q4	full	17	0	22.972	7.114	61	8	441.4	`rename *.jpeg *.jpg`
+instantllm	q4	full	18	0	19.336	7.130	57	5	327.7	python3 -V
+instantllm	q4	full	19	0	26.469	7.107	61	11	516.5	`grep -r 'TODO' *.js`
+instantllm	q4	full	0	1	19.750	7.210	63	9	638.0	`ls -lh /home/user`
+instantllm	q4	full	1	1	23.913	7.092	60	17	951.2	`find . -type f -name "*.py" -mtime +7`
+instantllm	q4	full	2	1	19.719	7.205	61	13	959.0	`lsof -i :8080`
+instantllm	q4	full	3	1	28.008	7.039	58	22	1001.6	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
+instantllm	q4	full	4	1	23.516	7.049	58	9	485.8	tar -czvf logs.tar.gz logs
+instantllm	q4	full	5	1	15.073	6.956	54	6	616.1	`killall node`
+instantllm	q4	full	6	1	15.632	7.233	62	7	714.5	`du -sh *`
+instantllm	q4	full	7	1	37.023	7.226	61	29	939.8	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+instantllm	q4	full	8	1	17.845	9.459	66	12	1311.9	tail -n 50 /var/log/system.log
+instantllm	q4	full	9	1	23.102	7.225	61	9	503.9	`git checkout -b feature/login`
+instantllm	q4	full	10	1	11.277	7.129	58	8	1688.0	`git reset --hard HEAD`
+instantllm	q4	full	11	1	28.316	7.178	59	20	898.9	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+instantllm	q4	full	12	1	22.824	7.050	58	9	507.2	`rm -rf .DS_Store`
+instantllm	q4	full	13	1	11.376	7.118	54	3	469.9	ipconfig
+instantllm	q4	full	14	1	28.527	7.137	57	50	2291.1	`ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 128k -b:a 128k -map 0:v -map 0:a output.mp4`
+instantllm	q4	full	15	1	19.740	7.184	60	17	1274.3	`ls -l | sort -nr | head -n 10`
+instantllm	q4	full	16	1	15.446	7.195	60	8	848.4	`git log --oneline`
+instantllm	q4	full	17	1	23.001	7.122	61	8	440.8	`rename *.jpeg *.jpg`
+instantllm	q4	full	18	1	19.269	7.094	57	5	328.6	python3 -V
+instantllm	q4	full	19	1	26.522	7.081	61	11	514.4	`grep -r 'TODO' *.js`

@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-llama.cpp	q4_k_m	fixed	0	0	138.982	13.781	19	32	247.60	```sh\nls -lh /home/user\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_k_m	fixed	1	0	133.838	8.466	16	32	247.26	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	q4_k_m	fixed	2	0	138.824	13.606	17	32	247.57	```sh\nlsof -i :8080\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n
-llama.cpp	q4_k_m	fixed	3	0	136.915	8.075	14	32	240.61	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	q4_k_m	fixed	4	0	139.749	9.577	14	32	238.15	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_k_m	fixed	5	0	133.157	7.721	10	32	247.14	killall node<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that
-llama.cpp	q4_k_m	fixed	6	0	139.975	13.909	18	32	245.90	```sh\ndu -sh * | sort -hr\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I
-llama.cpp	q4_k_m	fixed	7	0	139.181	13.663	17	32	246.98	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_k_m	fixed	8	0	138.770	12.921	22	32	246.33	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_k_m	fixed	9	0	139.298	13.642	17	32	246.71	```sh\ngit checkout -b feature/login\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_k_m	fixed	10	0	133.378	8.105	14	32	247.46	git reset --hard HEAD<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
-llama.cpp	q4_k_m	fixed	11	0	133.280	8.304	15	32	248.05	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	q4_k_m	fixed	12	0	133.056	8.042	14	32	247.97	```sh\nfind . -type f -name "*.DS_Store" -exec rm {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_k_m	fixed	13	0	132.844	7.714	10	32	247.74	ipconfig<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.
-llama.cpp	q4_k_m	fixed	14	0	133.278	7.951	13	32	247.35	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_k_m	fixed	15	0	133.848	8.461	16	32	247.23	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-llama.cpp	q4_k_m	fixed	16	0	133.528	8.419	16	32	247.78	git log --oneline<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	q4_k_m	fixed	17	0	138.724	13.587	17	32	247.73	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	q4_k_m	fixed	18	0	133.108	7.983	13	32	247.75	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	q4_k_m	fixed	19	0	138.581	13.607	17	32	248.05	```sh\ngrep -r TODO *.js --exclude=node_modules\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n
-llama.cpp	q4_k_m	fixed	0	1	139.035	13.842	19	32	247.62	```sh\nls -lh /home/user\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_k_m	fixed	1	1	133.393	8.452	16	32	248.12	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	q4_k_m	fixed	2	1	138.637	13.540	17	32	247.81	```sh\nlsof -i :8080\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n
-llama.cpp	q4_k_m	fixed	3	1	132.848	8.101	14	32	248.50	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	q4_k_m	fixed	4	1	132.938	8.047	14	32	248.22	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_k_m	fixed	5	1	132.656	7.705	10	32	248.10	killall node<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that
-llama.cpp	q4_k_m	fixed	6	1	138.971	13.673	18	32	247.41	```sh\ndu -sh * | sort -hr\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I
-llama.cpp	q4_k_m	fixed	7	1	138.523	13.579	17	32	248.11	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	q4_k_m	fixed	8	1	137.732	12.838	22	32	248.21	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_k_m	fixed	9	1	138.556	13.597	17	32	248.08	```sh\ngit checkout -b feature/login\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	q4_k_m	fixed	10	1	132.875	8.124	14	32	248.50	git reset --hard HEAD<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
-llama.cpp	q4_k_m	fixed	11	1	133.026	8.288	15	32	248.52	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	q4_k_m	fixed	12	1	133.162	8.095	14	32	247.87	```sh\nfind . -type f -name "*.DS_Store" -exec rm {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_k_m	fixed	13	1	132.745	7.772	10	32	248.05	ipconfig<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.
-llama.cpp	q4_k_m	fixed	14	1	133.141	7.995	13	32	247.71	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	q4_k_m	fixed	15	1	133.479	8.475	16	32	247.99	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-llama.cpp	q4_k_m	fixed	16	1	133.484	8.452	16	32	247.94	git log --oneline<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	q4_k_m	fixed	17	1	138.657	13.599	17	32	247.88	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	q4_k_m	fixed	18	1	132.837	8.016	13	32	248.36	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	q4_k_m	fixed	19	1	138.504	13.614	17	32	248.22	```sh\ngrep -r TODO *.js --exclude=node_modules\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n
+llama.cpp	q4_k_m	fixed	0	0	139.239	13.785	19	32	247.10	```sh\nls -lh /home/user\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_k_m	fixed	1	0	133.646	8.507	16	32	247.72	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	q4_k_m	fixed	2	0	140.049	13.651	17	32	245.26	```sh\nlsof -i :8080\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n
+llama.cpp	q4_k_m	fixed	3	0	133.375	8.107	14	32	247.47	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	q4_k_m	fixed	4	0	133.324	8.065	14	32	247.49	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_k_m	fixed	5	0	132.747	7.734	10	32	247.97	killall node<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that
+llama.cpp	q4_k_m	fixed	6	0	139.124	13.654	18	32	247.07	```sh\ndu -sh * | sort -hr\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I
+llama.cpp	q4_k_m	fixed	7	0	138.514	13.531	17	32	248.03	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_k_m	fixed	8	0	138.223	12.852	22	32	247.27	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_k_m	fixed	9	0	138.763	13.625	17	32	247.73	```sh\ngit checkout -b feature/login\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_k_m	fixed	10	0	133.596	8.047	14	32	246.92	git reset --hard HEAD<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
+llama.cpp	q4_k_m	fixed	11	0	144.362	8.250	15	32	227.75	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	q4_k_m	fixed	12	0	139.105	8.407	14	32	237.19	```sh\nfind . -type f -name "*.DS_Store" -exec rm {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_k_m	fixed	13	0	133.098	7.844	10	32	247.50	ipconfig<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.
+llama.cpp	q4_k_m	fixed	14	0	133.481	8.071	13	32	247.19	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_k_m	fixed	15	0	135.104	8.539	16	32	244.93	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+llama.cpp	q4_k_m	fixed	16	0	134.370	8.491	16	32	246.27	git log --oneline<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	q4_k_m	fixed	17	0	139.122	13.573	17	32	246.92	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	q4_k_m	fixed	18	0	133.208	8.024	13	32	247.63	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	q4_k_m	fixed	19	0	147.937	13.658	17	32	230.86	```sh\ngrep -r TODO *.js --exclude=node_modules\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n
+llama.cpp	q4_k_m	fixed	0	1	138.542	13.654	19	32	248.22	```sh\nls -lh /home/user\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_k_m	fixed	1	1	133.743	8.445	16	32	247.41	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	q4_k_m	fixed	2	1	138.565	13.561	17	32	247.99	```sh\nlsof -i :8080\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n
+llama.cpp	q4_k_m	fixed	3	1	133.114	8.154	14	32	248.08	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	q4_k_m	fixed	4	1	133.309	8.107	14	32	247.60	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_k_m	fixed	5	1	132.865	7.742	10	32	247.75	killall node<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that
+llama.cpp	q4_k_m	fixed	6	1	138.586	13.663	18	32	248.15	```sh\ndu -sh * | sort -hr\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I
+llama.cpp	q4_k_m	fixed	7	1	138.504	13.552	17	32	248.09	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	q4_k_m	fixed	8	1	137.948	12.879	22	32	247.86	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_k_m	fixed	9	1	139.392	13.613	17	32	246.46	```sh\ngit checkout -b feature/login\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	q4_k_m	fixed	10	1	133.324	8.205	14	32	247.76	git reset --hard HEAD<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
+llama.cpp	q4_k_m	fixed	11	1	133.312	8.284	15	32	247.95	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	q4_k_m	fixed	12	1	133.176	8.147	14	32	247.94	```sh\nfind . -type f -name "*.DS_Store" -exec rm {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_k_m	fixed	13	1	132.785	7.744	10	32	247.92	ipconfig<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.
+llama.cpp	q4_k_m	fixed	14	1	132.991	7.997	13	32	248.01	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	q4_k_m	fixed	15	1	133.617	8.493	16	32	247.75	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+llama.cpp	q4_k_m	fixed	16	1	133.527	8.469	16	32	247.88	git log --oneline<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	q4_k_m	fixed	17	1	138.594	13.580	17	32	247.97	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	q4_k_m	fixed	18	1	132.878	7.989	13	32	248.22	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	q4_k_m	fixed	19	1	138.368	13.636	17	32	248.53	```sh\ngrep -r TODO *.js --exclude=node_modules\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n

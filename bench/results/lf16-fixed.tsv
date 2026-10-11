@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-llama.cpp	fp16	fixed	0	0	264.819	13.884	19	32	123.54	```sh\nls -lh /home/user\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	fp16	fixed	1	0	261.032	10.363	16	32	123.67	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	2	0	264.922	13.711	17	32	123.40	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-llama.cpp	fp16	fixed	3	0	260.845	10.134	14	32	123.65	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```<|im_end|>\n<|endoftext|>I apologize, but I can't
-llama.cpp	fp16	fixed	4	0	263.002	10.045	14	32	122.55	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	fp16	fixed	5	0	260.439	9.752	10	32	123.66	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	fp16	fixed	6	0	265.014	13.873	18	32	123.44	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	fp16	fixed	7	0	264.393	13.791	17	32	123.70	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	fp16	fixed	8	0	264.206	13.208	22	32	123.51	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	fp16	fixed	9	0	264.598	13.804	17	32	123.61	```sh\ngit checkout -b feature/login\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	fp16	fixed	10	0	261.163	10.158	14	32	123.50	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	fp16	fixed	11	0	261.263	10.201	15	32	123.48	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	12	0	261.387	10.122	14	32	123.38	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	13	0	260.687	9.709	10	32	123.52	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	14	0	260.846	10.058	13	32	123.61	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	fp16	fixed	15	0	261.233	10.347	16	32	123.56	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-llama.cpp	fp16	fixed	16	0	261.156	10.334	16	32	123.59	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	fp16	fixed	17	0	264.888	13.745	17	32	123.44	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	fp16	fixed	18	0	261.063	10.106	13	32	123.53	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	19	0	264.846	13.785	17	32	123.48	`grep -r 'TODO' *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
-llama.cpp	fp16	fixed	0	1	265.445	13.968	19	32	123.27	```sh\nls -lh /home/user\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	fp16	fixed	1	1	262.133	10.445	16	32	123.17	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	2	1	265.627	13.868	17	32	123.13	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-llama.cpp	fp16	fixed	3	1	261.651	10.217	14	32	123.29	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```<|im_end|>\n<|endoftext|>I apologize, but I can't
-llama.cpp	fp16	fixed	4	1	262.184	10.149	14	32	123.00	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	fp16	fixed	5	1	261.177	9.823	10	32	123.33	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	fp16	fixed	6	1	265.644	13.985	18	32	123.18	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	fp16	fixed	7	1	265.379	13.845	17	32	123.24	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I
-llama.cpp	fp16	fixed	8	1	264.470	13.221	22	32	123.38	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	fp16	fixed	9	1	265.122	13.764	17	32	123.33	```sh\ngit checkout -b feature/login\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-llama.cpp	fp16	fixed	10	1	261.293	10.169	14	32	123.45	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	fp16	fixed	11	1	262.197	10.266	15	32	123.05	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	12	1	261.453	10.193	14	32	123.38	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	13	1	261.874	9.872	10	32	123.01	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	14	1	261.742	10.101	13	32	123.19	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-llama.cpp	fp16	fixed	15	1	262.232	10.321	16	32	123.06	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-llama.cpp	fp16	fixed	16	1	261.907	10.465	16	32	123.29	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-llama.cpp	fp16	fixed	17	1	267.134	13.856	17	32	122.40	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-llama.cpp	fp16	fixed	18	1	261.957	10.160	13	32	123.11	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-llama.cpp	fp16	fixed	19	1	265.458	14.006	17	32	123.28	`grep -r 'TODO' *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+llama.cpp	fp16	fixed	0	0	266.759	13.961	19	32	122.63	```sh\nls -lh /home/user\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	fp16	fixed	1	0	262.170	10.317	16	32	123.09	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	2	0	266.063	13.809	17	32	122.89	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+llama.cpp	fp16	fixed	3	0	261.026	10.172	14	32	123.58	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```<|im_end|>\n<|endoftext|>I apologize, but I can't
+llama.cpp	fp16	fixed	4	0	261.100	10.166	14	32	123.54	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	fp16	fixed	5	0	260.677	9.840	10	32	123.59	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	fp16	fixed	6	0	264.982	13.887	18	32	123.46	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	fp16	fixed	7	0	265.010	13.818	17	32	123.41	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	fp16	fixed	8	0	264.195	13.146	22	32	123.48	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	fp16	fixed	9	0	264.861	13.770	17	32	123.46	```sh\ngit checkout -b feature/login\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	fp16	fixed	10	0	260.838	10.106	14	32	123.64	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	fp16	fixed	11	0	262.594	10.198	15	32	122.82	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	12	0	261.075	10.243	14	32	123.59	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	13	0	260.659	9.774	10	32	123.56	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	14	0	260.961	10.044	13	32	123.55	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	fp16	fixed	15	0	261.177	10.346	16	32	123.59	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+llama.cpp	fp16	fixed	16	0	261.109	10.390	16	32	123.64	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	fp16	fixed	17	0	264.257	13.735	17	32	123.74	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	fp16	fixed	18	0	260.795	10.025	13	32	123.62	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	19	0	266.745	13.797	17	32	122.55	`grep -r 'TODO' *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+llama.cpp	fp16	fixed	0	1	265.025	13.991	19	32	123.49	```sh\nls -lh /home/user\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	fp16	fixed	1	1	261.918	10.314	16	32	123.21	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	2	1	264.513	13.815	17	32	123.65	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+llama.cpp	fp16	fixed	3	1	260.852	10.140	14	32	123.65	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```<|im_end|>\n<|endoftext|>I apologize, but I can't
+llama.cpp	fp16	fixed	4	1	262.394	10.071	14	32	122.86	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	fp16	fixed	5	1	261.173	9.870	10	32	123.36	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	fp16	fixed	6	1	264.841	13.970	18	32	123.57	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	fp16	fixed	7	1	264.918	13.833	17	32	123.46	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I'm sorry, but I
+llama.cpp	fp16	fixed	8	1	264.153	13.202	22	32	123.53	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	fp16	fixed	9	1	264.412	13.715	17	32	123.66	```sh\ngit checkout -b feature/login\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+llama.cpp	fp16	fixed	10	1	261.742	10.155	14	32	123.22	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	fp16	fixed	11	1	261.489	10.300	15	32	123.41	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	12	1	261.042	10.181	14	32	123.57	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	13	1	260.956	9.805	10	32	123.43	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	14	1	260.864	10.102	13	32	123.62	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+llama.cpp	fp16	fixed	15	1	261.760	10.376	16	32	123.32	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+llama.cpp	fp16	fixed	16	1	261.078	10.352	16	32	123.64	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+llama.cpp	fp16	fixed	17	1	265.745	14.175	17	32	123.23	rename *.jpeg *.jpg<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+llama.cpp	fp16	fixed	18	1	260.850	10.070	13	32	123.61	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+llama.cpp	fp16	fixed	19	1	264.833	13.734	17	32	123.46	`grep -r 'TODO' *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,

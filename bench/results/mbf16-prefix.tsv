@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-mlx_lm	bf16	prefix	0	0	90.182	25.441	19	9	123.60	`ls -lh /home/user`
-mlx_lm	bf16	prefix	1	0	178.313	23.923	16	20	123.09	```sh\nfind . -type f -name "*.py" -mtime -7\n```
-mlx_lm	bf16	prefix	2	0	122.796	25.432	17	13	123.28	`lsof -i :8080`
-mlx_lm	bf16	prefix	3	0	194.119	23.851	14	22	123.36	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
-mlx_lm	bf16	prefix	4	0	88.803	23.941	14	9	123.37	tar -czvf logs.tar.gz logs
-mlx_lm	bf16	prefix	5	0	63.448	22.865	10	6	123.26	`killall node`
-mlx_lm	bf16	prefix	6	0	74.263	25.513	18	7	123.12	`du -sh *`
-mlx_lm	bf16	prefix	7	0	252.151	25.423	17	29	123.51	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
-mlx_lm	bf16	prefix	8	0	114.613	25.539	22	12	123.52	tail -n 50 /var/log/system.log
-mlx_lm	bf16	prefix	9	0	90.422	25.474	17	9	123.22	`git checkout -b feature/login`
-mlx_lm	bf16	prefix	10	0	80.766	24.030	14	8	123.41	`git reset --hard HEAD`
-mlx_lm	bf16	prefix	11	0	178.007	24.023	15	20	123.41	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
-mlx_lm	bf16	prefix	12	0	177.901	23.786	14	20	123.31	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
-mlx_lm	bf16	prefix	13	0	55.439	22.897	10	5	122.97	ipconfig -a
-mlx_lm	bf16	prefix	14	0	210.098	23.510	13	24	123.28	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`
-mlx_lm	bf16	prefix	15	0	121.499	24.138	16	13	123.28	ls -lh | sort -nr | head -10
-mlx_lm	bf16	prefix	16	0	80.991	24.056	16	8	123.00	`git log --oneline`
-mlx_lm	bf16	prefix	17	0	82.467	25.590	17	8	123.13	`rename *.jpeg *.jpg`
-mlx_lm	bf16	prefix	18	0	56.274	23.761	13	5	123.11	python3.8
-mlx_lm	bf16	prefix	19	0	106.722	25.625	17	11	123.34	`grep -r "TODO" *.js`
-mlx_lm	bf16	prefix	0	1	90.562	25.518	19	9	123.05	`ls -lh /home/user`
-mlx_lm	bf16	prefix	1	1	178.239	24.204	16	20	123.38	```sh\nfind . -type f -name "*.py" -mtime -7\n```
-mlx_lm	bf16	prefix	2	1	122.969	25.469	17	13	123.11	`lsof -i :8080`
-mlx_lm	bf16	prefix	3	1	193.743	23.831	14	22	123.61	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
-mlx_lm	bf16	prefix	4	1	88.568	23.870	14	9	123.68	tar -czvf logs.tar.gz logs
-mlx_lm	bf16	prefix	5	1	63.536	22.821	10	6	122.87	`killall node`
-mlx_lm	bf16	prefix	6	1	74.126	25.519	18	7	123.48	`du -sh *`
-mlx_lm	bf16	prefix	7	1	253.117	25.407	17	29	122.99	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
-mlx_lm	bf16	prefix	8	1	120.917	28.128	22	12	118.61	tail -n 50 /var/log/system.log
-mlx_lm	bf16	prefix	9	1	91.638	26.548	17	9	122.98	`git checkout -b feature/login`
-mlx_lm	bf16	prefix	10	1	82.464	24.967	14	8	121.87	`git reset --hard HEAD`
-mlx_lm	bf16	prefix	11	1	179.346	24.854	15	20	123.03	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
-mlx_lm	bf16	prefix	12	1	183.002	26.356	14	20	121.34	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
-mlx_lm	bf16	prefix	13	1	58.347	25.366	10	5	121.51	ipconfig -a
-mlx_lm	bf16	prefix	14	1	213.017	25.729	13	24	122.85	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`
-mlx_lm	bf16	prefix	15	1	124.454	26.625	16	13	122.74	ls -lh | sort -nr | head -10
-mlx_lm	bf16	prefix	16	1	83.855	26.764	16	8	122.74	`git log --oneline`
-mlx_lm	bf16	prefix	17	1	85.084	28.181	17	8	123.12	`rename *.jpeg *.jpg`
-mlx_lm	bf16	prefix	18	1	58.477	25.963	13	5	123.18	python3.8
-mlx_lm	bf16	prefix	19	1	109.164	27.968	17	11	123.21	`grep -r "TODO" *.js`
+mlx_lm	bf16	prefix	0	0	90.907	25.649	19	9	122.66	`ls -lh /home/user`
+mlx_lm	bf16	prefix	1	0	182.368	24.338	16	20	120.27	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+mlx_lm	bf16	prefix	2	0	123.442	25.800	17	13	122.94	`lsof -i :8080`
+mlx_lm	bf16	prefix	3	0	194.902	24.077	14	22	122.96	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
+mlx_lm	bf16	prefix	4	0	89.280	24.094	14	9	122.79	tar -czvf logs.tar.gz logs
+mlx_lm	bf16	prefix	5	0	63.454	22.893	10	6	123.36	`killall node`
+mlx_lm	bf16	prefix	6	0	74.864	25.715	18	7	122.16	`du -sh *`
+mlx_lm	bf16	prefix	7	0	253.317	25.505	17	29	122.93	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+mlx_lm	bf16	prefix	8	0	115.108	25.667	22	12	123.04	tail -n 50 /var/log/system.log
+mlx_lm	bf16	prefix	9	0	91.069	25.827	17	9	122.69	`git checkout -b feature/login`
+mlx_lm	bf16	prefix	10	0	83.055	24.274	14	8	119.17	`git reset --hard HEAD`
+mlx_lm	bf16	prefix	11	0	179.350	24.445	15	20	122.69	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+mlx_lm	bf16	prefix	12	0	180.008	24.205	14	20	121.98	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+mlx_lm	bf16	prefix	13	0	55.726	22.881	10	5	121.91	ipconfig -a
+mlx_lm	bf16	prefix	14	0	211.723	23.854	13	24	122.46	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`
+mlx_lm	bf16	prefix	15	0	121.877	24.192	16	13	122.89	ls -lh | sort -nr | head -10
+mlx_lm	bf16	prefix	16	0	81.027	24.071	16	8	122.97	`git log --oneline`
+mlx_lm	bf16	prefix	17	0	82.703	25.719	17	8	122.92	`rename *.jpeg *.jpg`
+mlx_lm	bf16	prefix	18	0	56.390	23.809	13	5	122.86	python3.8
+mlx_lm	bf16	prefix	19	0	107.021	25.728	17	11	123.06	`grep -r "TODO" *.js`
+mlx_lm	bf16	prefix	0	1	90.717	25.628	19	9	122.96	`ls -lh /home/user`
+mlx_lm	bf16	prefix	1	1	178.403	24.021	16	20	123.09	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+mlx_lm	bf16	prefix	2	1	123.257	25.503	17	13	122.79	`lsof -i :8080`
+mlx_lm	bf16	prefix	3	1	194.518	24.018	14	22	123.19	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
+mlx_lm	bf16	prefix	4	1	89.212	23.979	14	9	122.71	tar -czvf logs.tar.gz logs
+mlx_lm	bf16	prefix	5	1	63.475	22.857	10	6	123.15	`killall node`
+mlx_lm	bf16	prefix	6	1	74.298	25.559	18	7	123.15	`du -sh *`
+mlx_lm	bf16	prefix	7	1	253.441	25.724	17	29	122.98	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+mlx_lm	bf16	prefix	8	1	116.228	26.879	22	12	123.16	tail -n 50 /var/log/system.log
+mlx_lm	bf16	prefix	9	1	90.680	25.631	17	9	123.02	`git checkout -b feature/login`
+mlx_lm	bf16	prefix	10	1	80.818	23.780	14	8	122.78	`git reset --hard HEAD`
+mlx_lm	bf16	prefix	11	1	178.700	24.051	15	20	122.88	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+mlx_lm	bf16	prefix	12	1	178.327	23.966	14	20	123.11	`find . -type f -name "*.DS_Store" -exec rm {} \\;`
+mlx_lm	bf16	prefix	13	1	55.301	22.810	10	5	123.15	ipconfig -a
+mlx_lm	bf16	prefix	14	1	210.822	23.586	13	24	122.86	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`
+mlx_lm	bf16	prefix	15	1	121.854	24.179	16	13	122.89	ls -lh | sort -nr | head -10
+mlx_lm	bf16	prefix	16	1	81.077	24.061	16	8	122.81	`git log --oneline`
+mlx_lm	bf16	prefix	17	1	82.520	25.678	17	8	123.18	`rename *.jpeg *.jpg`
+mlx_lm	bf16	prefix	18	1	55.907	23.418	13	5	123.16	python3.8
+mlx_lm	bf16	prefix	19	1	107.066	25.732	17	11	122.98	`grep -r "TODO" *.js`

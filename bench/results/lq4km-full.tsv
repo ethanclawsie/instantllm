@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-llama.cpp	q4_k_m	full	0	0	60.937	15.840	63	12	243.92	```sh\nls -lh /home/user\n```
-llama.cpp	q4_k_m	full	1	0	92.684	15.645	60	20	246.63	```sh\nfind . -type f -name "*.py" -mtime -7\n```
-llama.cpp	q4_k_m	full	2	0	76.783	15.736	61	16	245.71	```sh\nlsof -i :8080\n```
-llama.cpp	q4_k_m	full	3	0	104.620	15.560	58	23	247.02	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```
-llama.cpp	q4_k_m	full	4	0	48.435	15.581	58	9	243.50	tar -czvf logs.tar.gz logs
-llama.cpp	q4_k_m	full	5	0	27.986	15.288	54	4	236.26	killall node
-llama.cpp	q4_k_m	full	6	0	68.734	15.774	62	14	245.46	```sh\ndu -sh * | sort -hr\n```
-llama.cpp	q4_k_m	full	7	0	108.825	15.730	61	24	247.06	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```
-llama.cpp	q4_k_m	full	8	0	61.146	16.115	66	12	244.28	tail -n 50 /var/log/system.log
-llama.cpp	q4_k_m	full	9	0	60.745	15.780	61	12	244.64	```sh\ngit checkout -b feature/login\n```
-llama.cpp	q4_k_m	full	10	0	36.262	15.599	58	6	241.97	git reset --hard HEAD
-llama.cpp	q4_k_m	full	11	0	92.545	15.596	59	20	246.92	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
-llama.cpp	q4_k_m	full	12	0	100.693	15.558	58	22	246.67	```sh\nfind . -type f -name "*.DS_Store" -exec rm {} \\;\n```
-llama.cpp	q4_k_m	full	13	0	23.816	15.246	54	3	233.38	ipconfig
-llama.cpp	q4_k_m	full	14	0	100.833	15.526	57	22	246.17	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4
-llama.cpp	q4_k_m	full	15	0	64.484	15.656	60	13	245.76	ls -lh | sort -nr | head -10
-llama.cpp	q4_k_m	full	16	0	36.369	15.695	60	6	241.86	git log --oneline
-llama.cpp	q4_k_m	full	17	0	36.324	15.714	61	6	242.61	rename *.jpeg *.jpg
-llama.cpp	q4_k_m	full	18	0	32.073	15.488	57	5	241.17	python3.8
-llama.cpp	q4_k_m	full	19	0	77.851	15.636	61	16	241.10	```sh\ngrep -r TODO *.js --exclude=node_modules\n```
-llama.cpp	q4_k_m	full	0	1	63.441	16.165	63	12	232.68	```sh\nls -lh /home/user\n```
-llama.cpp	q4_k_m	full	1	1	95.021	16.358	60	20	241.54	```sh\nfind . -type f -name "*.py" -mtime -7\n```
-llama.cpp	q4_k_m	full	2	1	76.599	15.806	61	16	246.74	```sh\nlsof -i :8080\n```
-llama.cpp	q4_k_m	full	3	1	104.599	15.656	58	23	247.35	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```
-llama.cpp	q4_k_m	full	4	1	48.628	15.660	58	9	242.66	tar -czvf logs.tar.gz logs
-llama.cpp	q4_k_m	full	5	1	27.888	15.225	54	4	236.91	killall node
-llama.cpp	q4_k_m	full	6	1	68.716	15.840	62	14	245.86	```sh\ndu -sh * | sort -hr\n```
-llama.cpp	q4_k_m	full	7	1	108.959	15.789	61	24	246.86	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```
-llama.cpp	q4_k_m	full	8	1	60.946	16.127	66	12	245.43	tail -n 50 /var/log/system.log
-llama.cpp	q4_k_m	full	9	1	60.651	15.762	61	12	245.05	```sh\ngit checkout -b feature/login\n```
-llama.cpp	q4_k_m	full	10	1	36.233	15.552	58	6	241.78	git reset --hard HEAD
-llama.cpp	q4_k_m	full	11	1	92.611	15.650	59	20	246.88	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
-llama.cpp	q4_k_m	full	12	1	100.771	15.624	58	22	246.63	```sh\nfind . -type f -name "*.DS_Store" -exec rm {} \\;\n```
-llama.cpp	q4_k_m	full	13	1	23.855	15.330	54	3	234.59	ipconfig
-llama.cpp	q4_k_m	full	14	1	100.670	15.574	57	22	246.78	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4
-llama.cpp	q4_k_m	full	15	1	64.597	15.727	60	13	245.55	ls -lh | sort -nr | head -10
-llama.cpp	q4_k_m	full	16	1	36.300	15.618	60	6	241.76	git log --oneline
-llama.cpp	q4_k_m	full	17	1	36.378	15.740	61	6	242.28	rename *.jpeg *.jpg
-llama.cpp	q4_k_m	full	18	1	32.262	15.549	57	5	239.34	python3.8
-llama.cpp	q4_k_m	full	19	1	76.768	15.710	61	16	245.67	```sh\ngrep -r TODO *.js --exclude=node_modules\n```
+llama.cpp	q4_k_m	full	0	0	61.240	15.759	63	12	241.86	```sh\nls -lh /home/user\n```
+llama.cpp	q4_k_m	full	1	0	92.979	15.800	60	20	246.18	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+llama.cpp	q4_k_m	full	2	0	76.709	15.767	61	16	246.14	```sh\nlsof -i :8080\n```
+llama.cpp	q4_k_m	full	3	0	104.298	15.564	58	23	247.93	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```
+llama.cpp	q4_k_m	full	4	0	48.154	15.569	58	9	245.51	tar -czvf logs.tar.gz logs
+llama.cpp	q4_k_m	full	5	0	27.853	15.267	54	4	238.35	killall node
+llama.cpp	q4_k_m	full	6	0	68.533	15.684	62	14	245.99	```sh\ndu -sh * | sort -hr\n```
+llama.cpp	q4_k_m	full	7	0	108.686	15.690	61	24	247.32	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```
+llama.cpp	q4_k_m	full	8	0	60.729	16.090	66	12	246.43	tail -n 50 /var/log/system.log
+llama.cpp	q4_k_m	full	9	0	60.504	15.772	61	12	245.91	```sh\ngit checkout -b feature/login\n```
+llama.cpp	q4_k_m	full	10	0	36.094	15.545	58	6	243.33	git reset --hard HEAD
+llama.cpp	q4_k_m	full	11	0	92.477	15.540	59	20	246.95	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+llama.cpp	q4_k_m	full	12	0	100.331	15.514	58	22	247.59	```sh\nfind . -type f -name "*.DS_Store" -exec rm {} \\;\n```
+llama.cpp	q4_k_m	full	13	0	23.731	15.226	54	3	235.17	ipconfig
+llama.cpp	q4_k_m	full	14	0	100.349	15.390	57	22	247.18	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4
+llama.cpp	q4_k_m	full	15	0	64.614	15.613	60	13	244.89	ls -lh | sort -nr | head -10
+llama.cpp	q4_k_m	full	16	0	36.238	15.690	60	6	243.33	git log --oneline
+llama.cpp	q4_k_m	full	17	0	36.260	15.712	61	6	243.33	rename *.jpeg *.jpg
+llama.cpp	q4_k_m	full	18	0	32.118	15.478	57	5	240.38	python3.8
+llama.cpp	q4_k_m	full	19	0	76.493	15.681	61	16	246.66	```sh\ngrep -r TODO *.js --exclude=node_modules\n```
+llama.cpp	q4_k_m	full	0	1	60.656	15.889	63	12	245.72	```sh\nls -lh /home/user\n```
+llama.cpp	q4_k_m	full	1	1	93.814	15.681	60	20	243.17	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+llama.cpp	q4_k_m	full	2	1	76.739	15.838	61	16	246.30	```sh\nlsof -i :8080\n```
+llama.cpp	q4_k_m	full	3	1	104.869	15.634	58	23	246.54	```sh\nfind . -type f -name "*.swift" -exec wc -l {} \\;\n```
+llama.cpp	q4_k_m	full	4	1	48.289	15.577	58	9	244.56	tar -czvf logs.tar.gz logs
+llama.cpp	q4_k_m	full	5	1	27.942	15.190	54	4	235.25	killall node
+llama.cpp	q4_k_m	full	6	1	68.905	15.962	62	14	245.55	```sh\ndu -sh * | sort -hr\n```
+llama.cpp	q4_k_m	full	7	1	108.873	15.725	61	24	246.92	```sh\nfind . -type f -exec sed -i 's/foo/bar/g' {} \\;\n```
+llama.cpp	q4_k_m	full	8	1	60.805	16.092	66	12	246.01	tail -n 50 /var/log/system.log
+llama.cpp	q4_k_m	full	9	1	60.621	15.830	61	12	245.59	```sh\ngit checkout -b feature/login\n```
+llama.cpp	q4_k_m	full	10	1	36.358	15.574	58	6	240.57	git reset --hard HEAD
+llama.cpp	q4_k_m	full	11	1	92.783	15.608	59	20	246.19	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+llama.cpp	q4_k_m	full	12	1	100.546	15.673	58	22	247.43	```sh\nfind . -type f -name "*.DS_Store" -exec rm {} \\;\n```
+llama.cpp	q4_k_m	full	13	1	23.892	15.329	54	3	233.55	ipconfig
+llama.cpp	q4_k_m	full	14	1	100.482	15.563	57	22	247.29	ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4
+llama.cpp	q4_k_m	full	15	1	64.443	15.591	60	13	245.64	ls -lh | sort -nr | head -10
+llama.cpp	q4_k_m	full	16	1	36.278	15.685	60	6	242.80	git log --oneline
+llama.cpp	q4_k_m	full	17	1	36.319	15.650	61	6	241.91	rename *.jpeg *.jpg
+llama.cpp	q4_k_m	full	18	1	32.329	15.579	57	5	238.80	python3.8
+llama.cpp	q4_k_m	full	19	1	76.616	15.728	61	16	246.35	```sh\ngrep -r TODO *.js --exclude=node_modules\n```

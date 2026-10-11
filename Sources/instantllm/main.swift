@@ -427,6 +427,7 @@ case "serve":
 case "profile":
     let engine: Engine
     do { engine = try Engine(modelPath: args.get("model", "model.ill")) } catch { fail("\(error)") }
+    if let p = args.options["ildraft"] { try? engine.loadLearnedDrafter(path: p) }
     for (name, t) in engine.profile(n: args.int("n", 17), pos: args.int("pos", 46)) {
         print(String(format: "%-48@ %8.3f ms", name as NSString, t))
     }

@@ -26,6 +26,12 @@ public final class Engine {
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
     var pSpin: MTLComputePipelineState?
+    let pAttnRows: MTLComputePipelineState
+    /// Experimental, not yet measured (ILL_ATTN_ROWS=1): requests whose whole context fits
+    /// ATT_ROWS_MAXL use the row-grouped attention for every pass (decided per request, so all
+    /// passes of a request share one kernel's numerics).
+    private var attnRows = false
+    public var useAttnRows = ProcessInfo.processInfo.environment["ILL_ATTN_ROWS"] != nil
 
     var pCommitSpec: MTLComputePipelineState?
     var pLmhSketch: [Int: MTLComputePipelineState] = [:], pLmhExact: [Int: MTLComputePipelineState] = [:]
@@ -174,6 +180,7 @@ public final class Engine {
         pCommit = try pipe("k_commit")
         pAttnIn = try pipe("k_attn_in")
         pAttention = try pipe("k_attention")
+        pAttnRows = try pipe("k_attn_rows")
         pOProj = try pipe("k_o_proj")
         pMlpIn = try pipe("k_mlp_in")
         pMlpOut = try pipe("k_mlp_out")
@@ -403,13 +410,13 @@ public final class Engine {
 
     /// Attention for `rows` rows starting at row `toff` of the pass (KV of layer at kvOff).
     private func encodeAttention(_ e: MTLComputeCommandEncoder, kvOff: Int, rows: Int, toff t0: Int) {
-        e.setComputePipelineState(pAttention)
+        e.setComputePipelineState(attnRows ? pAttnRows : pAttention)
         e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
         e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
         e.setBuffer(attnh, offset: 0, index: 6); e.setBuffer(treeBuf, offset: 0, index: 7)
         var toff = Int32(t0)
         e.setBytes(&toff, length: 4, index: 5)
-        grid(e, Dims.heads, rows)
+        if attnRows { grid(e, Dims.heads, (rows + 7) / 8, 256) } else { grid(e, Dims.heads, rows) }
     }
 
     /// QKV (kind 0) or gate/up (kind 2) GEMM with the RMSNorm of x folded in (n <= 8 rows).
@@ -637,6 +644,7 @@ public final class Engine {
 
     public func profile(n: Int, pos: Int) -> [(String, Double)] {
         var r: [(String, Double)] = []
+        attnRows = useAttnRows && pos + n + 32 <= 512
         let pt = promptToks.contents().assumingMemoryBound(to: Int32.self)
         for i in 0..<maxPass { pt[i] = Int32(1000 + i) }
         if gemmThreshold != Int.max {
@@ -645,11 +653,7 @@ public final class Engine {
         r.append(("  24x g2 qkv", gpuTime(n: n, pos: pos) { e in
             for l in 0..<Dims.layers { self.encodeG2(e, 0, a: self.xnh, wID: TensorID.layer(l, TensorID.wqkv), sbID: TensorID.layer(l, TensorID.wqkvSB), biasID: TensorID.layer(l, TensorID.bqkv), outf: self.q, outh: self.hh, kvOff: kv(l), rows: Dims.qkvRows, n: n) } }))
         r.append(("  24x attention", gpuTime(n: n, pos: pos) { e in
-            for l in 0..<Dims.layers {
-                e.setComputePipelineState(self.pAttention); e.setBuffer(self.q, offset: 0, index: 0); e.setBuffer(self.kc, offset: kv(l), index: 1)
-                e.setBuffer(self.vc, offset: kv(l), index: 2); e.setBuffer(self.attn, offset: 0, index: 3); e.setBuffer(self.state, offset: 0, index: 4); e.setBuffer(self.attnh, offset: 0, index: 6); e.setBuffer(self.treeBuf, offset: 0, index: 7)
-                var toff: Int32 = 0; e.setBytes(&toff, length: 4, index: 5)
-                self.grid(e, Dims.heads, n) } }))
+            for l in 0..<Dims.layers { self.encodeAttention(e, kvOff: kv(l), rows: n, toff: 0) } }))
         r.append(("  24x g2 o", gpuTime(n: n, pos: pos) { e in
             for l in 0..<Dims.layers { self.encodeG2(e, 1, a: self.attnh, wID: TensorID.layer(l, TensorID.wo), sbID: TensorID.layer(l, TensorID.woSB), biasID: nil, outf: self.x, outh: self.hh, kvOff: 0, rows: Dims.hidden, n: n) } }))
         r.append(("  24x g2 gu", gpuTime(n: n, pos: pos) { e in
@@ -705,6 +709,23 @@ public final class Engine {
                 e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.pval, offset: 0, index: 4); e.setBuffer(self.pidx, offset: 0, index: 5)
                 e.setBuffer(self.state, offset: 0, index: 6); e.setBuffer(self.lmhBounds, offset: 0, index: 7); e.setBuffer(self.lmhTau, offset: 0, index: 8)
                 self.grid(e, Dims.vocab / 32, 1, 128) }))
+        }
+        if let d = ildraft, pILDraft != nil {
+            // Learned drafter alone: a synthetic request context and 12 committed tokens.
+            let s0 = state.contents().assumingMemoryBound(to: Int32.self)
+            d.prepare(prompt: (0..<14).map { Int32(1000 + $0) }, text: "find all python files modified today", encode: { _ in [] })
+            let ot = outToks.contents().assumingMemoryBound(to: Int32.self)
+            let toks: [Int32] = [63, 3903, 659, 481, 1313, 330, 9, 13, 3288, 1, 481, 76]
+            for (i, t) in toks.enumerated() { ot[i] = t }
+            let saved = learnedActive
+            learnedActive = true
+            for (T, B) in [(8, 0), (16, 7), (16, 15)] {
+                r.append(("  ildraft \(B == 0 ? "chain 7" : "tree \(B)")", gpuTime(n: 1, pos: pos + n) { e in
+                    s0[2] = Int32(toks.count)
+                    self.encodeLearnedDraftOnce(e, T: T, treeB: B)
+                }))
+            }
+            learnedActive = saved
         }
         if pCommitSpec != nil {
             let s0 = state.contents().assumingMemoryBound(to: Int32.self)
@@ -949,6 +970,7 @@ public final class Engine {
         s[14] = learnedActive ? 1 : 0            // pad3: k_ildraft drafts after the commit
         s[15] = 0                                // pad4: set by k_ildraft for a tree pass
 
+        attnRows = useAttnRows && tokens.count + maxNew + 16 <= 512
         // Prefill gets its own command buffer, committed at once. Decode steps go in small command
         // buffers kept `depth` steps ahead of the CPU: a token written by the GPU only becomes
         // CPU-visible once later memory traffic or the end of its command buffer flushes it, so

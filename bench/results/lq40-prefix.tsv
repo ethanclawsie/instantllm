@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-llama.cpp	q4_0	prefix	0	0	42.538	13.065	19	9	271.43	`ls -lh /home/user`
-llama.cpp	q4_0	prefix	1	0	65.936	7.547	16	17	274.02	`find . -type f -name "*.py" -mtime -7`
-llama.cpp	q4_0	prefix	2	0	56.646	12.862	17	13	274.08	`lsof -i :8080`
-llama.cpp	q4_0	prefix	3	0	72.858	7.282	14	19	274.49	`find . -type f -name "*.swift" -exec echo {} \\;`
-llama.cpp	q4_0	prefix	4	0	36.598	7.233	14	9	272.43	tar -czvf logs.tar.gz logs
-llama.cpp	q4_0	prefix	5	0	25.441	6.777	10	6	267.89	`killall node`
-llama.cpp	q4_0	prefix	6	0	35.226	13.126	18	7	271.49	`du -sh *`
-llama.cpp	q4_0	prefix	7	0	107.405	12.934	17	27	275.22	```sh\nfind . -type f -name "*.txt" -exec sed 's/foo/bar/g' {} \\;\n```
-llama.cpp	q4_0	prefix	8	0	52.718	12.248	22	12	271.81	tail -n 50 /var/log/system.log
-llama.cpp	q4_0	prefix	9	0	42.314	12.963	17	9	272.56	`git checkout -b feature/login`
-llama.cpp	q4_0	prefix	10	0	33.133	7.286	14	8	270.83	`git reset --hard HEAD`
-llama.cpp	q4_0	prefix	11	0	47.632	7.383	15	12	273.29	`curl -O https://example.com/file.zip`
-llama.cpp	q4_0	prefix	12	0	29.447	7.243	14	7	270.22	rm -rf .DS_Store
-llama.cpp	q4_0	prefix	13	0	28.766	6.681	10	7	271.68	`curl ifconfig.me`
-llama.cpp	q4_0	prefix	14	0	54.361	6.929	13	14	274.08	`ffmpeg -i video.mov -c copy video.mp4`
-llama.cpp	q4_0	prefix	15	0	43.974	7.548	16	11	274.53	ls -lh | head -n 10
-llama.cpp	q4_0	prefix	16	0	33.437	7.500	16	8	269.89	`git log --oneline`
-llama.cpp	q4_0	prefix	17	0	31.475	12.930	17	6	269.61	rename *.jpeg *.jpg
-llama.cpp	q4_0	prefix	18	0	21.941	6.909	13	5	266.10	python3.8
-llama.cpp	q4_0	prefix	19	0	64.052	12.914	17	15	273.77	`grep -r "TODO" *.js --exclude=node_modules`
-llama.cpp	q4_0	prefix	0	1	42.766	13.289	19	9	271.40	`ls -lh /home/user`
-llama.cpp	q4_0	prefix	1	1	66.501	7.585	16	17	271.57	`find . -type f -name "*.py" -mtime -7`
-llama.cpp	q4_0	prefix	2	1	57.077	13.075	17	13	272.71	`lsof -i :8080`
-llama.cpp	q4_0	prefix	3	1	72.981	7.255	14	19	273.86	`find . -type f -name "*.swift" -exec echo {} \\;`
-llama.cpp	q4_0	prefix	4	1	36.522	7.205	14	9	272.88	tar -czvf logs.tar.gz logs
-llama.cpp	q4_0	prefix	5	1	25.980	6.992	10	6	263.32	`killall node`
-llama.cpp	q4_0	prefix	6	1	35.365	13.069	18	7	269.11	`du -sh *`
-llama.cpp	q4_0	prefix	7	1	107.471	12.911	17	27	274.96	```sh\nfind . -type f -name "*.txt" -exec sed 's/foo/bar/g' {} \\;\n```
-llama.cpp	q4_0	prefix	8	1	52.758	12.259	22	12	271.61	tail -n 50 /var/log/system.log
-llama.cpp	q4_0	prefix	9	1	42.398	12.959	17	9	271.75	`git checkout -b feature/login`
-llama.cpp	q4_0	prefix	10	1	33.080	7.234	14	8	270.84	`git reset --hard HEAD`
-llama.cpp	q4_0	prefix	11	1	48.060	7.400	15	12	270.54	`curl -O https://example.com/file.zip`
-llama.cpp	q4_0	prefix	12	1	30.101	7.919	14	7	270.49	rm -rf .DS_Store
-llama.cpp	q4_0	prefix	13	1	29.000	6.749	10	7	269.65	`curl ifconfig.me`
-llama.cpp	q4_0	prefix	14	1	54.490	6.984	13	14	273.65	`ffmpeg -i video.mov -c copy video.mp4`
-llama.cpp	q4_0	prefix	15	1	44.465	7.539	16	11	270.82	ls -lh | head -n 10
-llama.cpp	q4_0	prefix	16	1	33.218	7.521	16	8	272.41	`git log --oneline`
-llama.cpp	q4_0	prefix	17	1	31.487	12.925	17	6	269.38	rename *.jpeg *.jpg
-llama.cpp	q4_0	prefix	18	1	21.984	7.016	13	5	267.23	python3.8
-llama.cpp	q4_0	prefix	19	1	64.164	12.965	17	15	273.44	`grep -r "TODO" *.js --exclude=node_modules`
+llama.cpp	q4_0	prefix	0	0	42.644	13.162	19	9	271.35	`ls -lh /home/user`
+llama.cpp	q4_0	prefix	1	0	66.079	7.566	16	17	273.45	`find . -type f -name "*.py" -mtime -7`
+llama.cpp	q4_0	prefix	2	0	57.034	13.016	17	13	272.61	`lsof -i :8080`
+llama.cpp	q4_0	prefix	3	0	72.799	7.305	14	19	274.83	`find . -type f -name "*.swift" -exec echo {} \\;`
+llama.cpp	q4_0	prefix	4	0	36.832	7.235	14	9	270.30	tar -czvf logs.tar.gz logs
+llama.cpp	q4_0	prefix	5	0	25.333	6.754	10	6	269.12	`killall node`
+llama.cpp	q4_0	prefix	6	0	35.314	13.060	18	7	269.61	`du -sh *`
+llama.cpp	q4_0	prefix	7	0	107.880	12.960	17	27	273.91	```sh\nfind . -type f -name "*.txt" -exec sed 's/foo/bar/g' {} \\;\n```
+llama.cpp	q4_0	prefix	8	0	52.810	12.244	22	12	271.17	tail -n 50 /var/log/system.log
+llama.cpp	q4_0	prefix	9	0	42.692	12.993	17	9	269.37	`git checkout -b feature/login`
+llama.cpp	q4_0	prefix	10	0	32.994	7.178	14	8	271.15	`git reset --hard HEAD`
+llama.cpp	q4_0	prefix	11	0	47.719	7.440	15	12	273.10	`curl -O https://example.com/file.zip`
+llama.cpp	q4_0	prefix	12	0	29.425	7.267	14	7	270.78	rm -rf .DS_Store
+llama.cpp	q4_0	prefix	13	0	28.919	6.753	10	7	270.69	`curl ifconfig.me`
+llama.cpp	q4_0	prefix	14	0	54.580	6.983	13	14	273.13	`ffmpeg -i video.mov -c copy video.mp4`
+llama.cpp	q4_0	prefix	15	0	44.189	7.512	16	11	272.65	ls -lh | head -n 10
+llama.cpp	q4_0	prefix	16	0	33.363	7.539	16	8	271.07	`git log --oneline`
+llama.cpp	q4_0	prefix	17	0	31.516	12.921	17	6	268.89	rename *.jpeg *.jpg
+llama.cpp	q4_0	prefix	18	0	21.966	7.002	13	5	267.31	python3.8
+llama.cpp	q4_0	prefix	19	0	63.996	12.972	17	15	274.38	`grep -r "TODO" *.js --exclude=node_modules`
+llama.cpp	q4_0	prefix	0	1	42.517	13.022	19	9	271.23	`ls -lh /home/user`
+llama.cpp	q4_0	prefix	1	1	65.853	7.486	16	17	274.13	`find . -type f -name "*.py" -mtime -7`
+llama.cpp	q4_0	prefix	2	1	56.830	12.933	17	13	273.37	`lsof -i :8080`
+llama.cpp	q4_0	prefix	3	1	72.799	7.229	14	19	274.51	`find . -type f -name "*.swift" -exec echo {} \\;`
+llama.cpp	q4_0	prefix	4	1	36.581	7.228	14	9	272.54	tar -czvf logs.tar.gz logs
+llama.cpp	q4_0	prefix	5	1	25.355	6.780	10	6	269.17	`killall node`
+llama.cpp	q4_0	prefix	6	1	35.344	13.102	18	7	269.76	`du -sh *`
+llama.cpp	q4_0	prefix	7	1	107.658	12.952	17	27	274.53	```sh\nfind . -type f -name "*.txt" -exec sed 's/foo/bar/g' {} \\;\n```
+llama.cpp	q4_0	prefix	8	1	52.525	12.269	22	12	273.25	tail -n 50 /var/log/system.log
+llama.cpp	q4_0	prefix	9	1	42.366	12.926	17	9	271.74	`git checkout -b feature/login`
+llama.cpp	q4_0	prefix	10	1	33.030	7.225	14	8	271.26	`git reset --hard HEAD`
+llama.cpp	q4_0	prefix	11	1	47.599	7.381	15	12	273.51	`curl -O https://example.com/file.zip`
+llama.cpp	q4_0	prefix	12	1	29.484	7.287	14	7	270.31	rm -rf .DS_Store
+llama.cpp	q4_0	prefix	13	1	28.848	6.782	10	7	271.92	`curl ifconfig.me`
+llama.cpp	q4_0	prefix	14	1	54.236	6.926	13	14	274.78	`ffmpeg -i video.mov -c copy video.mp4`
+llama.cpp	q4_0	prefix	15	1	44.207	7.540	16	11	272.72	ls -lh | head -n 10
+llama.cpp	q4_0	prefix	16	1	33.378	7.596	16	8	271.50	`git log --oneline`
+llama.cpp	q4_0	prefix	17	1	31.487	12.950	17	6	269.73	rename *.jpeg *.jpg
+llama.cpp	q4_0	prefix	18	1	22.027	6.999	13	5	266.18	python3.8
+llama.cpp	q4_0	prefix	19	1	63.993	12.885	17	15	273.93	`grep -r "TODO" *.js --exclude=node_modules`

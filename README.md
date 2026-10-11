@@ -19,12 +19,13 @@ equally.
 
 | median | **instantllm q4** | llama.cpp Q4_0 | llama.cpp Q4_K_M | mlx-lm 4bit |
 |---|---:|---:|---:|---:|
-| time to first token (prompt cached) | **4.1 ms** | 7.5 ms | 8.5 ms | 14.4 ms |
-| decode (32 tokens) | **503 tok/s** | 275 tok/s | 248 tok/s | 354 tok/s |
-| end to end, exactly 32 tokens | **65.7 ms** | 120.2 ms | 133.7 ms | 102.1 ms |
-| end to end, natural stop | **20.2 ms** | 42.5 ms | 58.5 ms | 61.0 ms |
-| end to end, whole prompt (no cache) | **22.5 ms** | 44.1 ms | 64.0 ms | 63.5 ms |
-| cold: fresh process per request | **47 ms** | 235 ms | - | 1807 ms |
+| time to first token (prompt cached) | **4.0 ms** | 7.5 ms | 8.5 ms | 14.5 ms |
+| decode (32 tokens) | **501 tok/s** | 275 tok/s | 248 tok/s | 348 tok/s |
+| end to end, exactly 32 tokens | **66.1 ms** | 120.5 ms | 134.1 ms | 103.6 ms |
+| end to end, natural stop | **18.7 ms** | 42.6 ms | 58.5 ms | 61.2 ms |
+| *(mean)* end to end, natural stop | **18.5 ms** | 46.4 ms | 60.1 ms | 90.2 ms |
+| end to end, whole prompt (no cache) | **21.3 ms** | 44.1 ms | 62.8 ms | 64.9 ms |
+| cold: fresh process per request | **44 ms** | 236 ms | - | 1872 ms |
 | resident daemon + C client (`ill`), spawn to exit | **22 ms** | - | - | - |
 | weights read per token | 278 MB | 346 MB | 392 MB | 278 MB |
 
@@ -32,28 +33,31 @@ equally.
 
 | median | **instantllm q8** | llama.cpp Q8_0 | mlx-lm 8bit |
 |---|---:|---:|---:|
-| time to first token (prompt cached) | **5.7 ms** | 7.9 ms | 17.7 ms |
-| decode (32 tokens) | **340 tok/s** | 208 tok/s | 216 tok/s |
-| end to end, exactly 32 tokens | **97.0 ms** | 156.7 ms | 161.0 ms |
-| end to end, natural stop | **31.1 ms** | 65.5 ms | 59.6 ms |
-| end to end, whole prompt (no cache) | **33.3 ms** | 68.5 ms | 62.4 ms |
+| time to first token (prompt cached) | **5.8 ms** | 7.9 ms | 17.7 ms |
+| decode (32 tokens) | **315 tok/s** | 208 tok/s | 215 tok/s |
+| end to end, exactly 32 tokens | **104.6 ms** | 157.1 ms | 162.4 ms |
+| end to end, natural stop | **29.6 ms** | 65.5 ms | 59.8 ms |
+| *(mean)* end to end, natural stop | **27.0 ms** | 67.4 ms | 73.5 ms |
+| end to end, whole prompt (no cache) | **31.8 ms** | 68.7 ms | 62.8 ms |
 
 **16-bit**
 
 | median | **instantllm f16** | llama.cpp F16 | mlx-lm bf16 |
 |---|---:|---:|---:|
-| time to first token (prompt cached) | **9.9 ms** | 10.3 ms | 25.4 ms |
-| decode (32 tokens) | **178 tok/s** | 123 tok/s | 122 tok/s |
-| end to end, exactly 32 tokens | **184.4 ms** | 262.2 ms | 277.7 ms |
-| end to end, natural stop | **57.8 ms** | 102.3 ms | 99.2 ms |
-| end to end, whole prompt (no cache) | **58.3 ms** | 105.4 ms | 101.3 ms |
+| time to first token (prompt cached) | **10.1 ms** | 10.3 ms | 24.2 ms |
+| decode (32 tokens) | **175 tok/s** | 124 tok/s | 122 tok/s |
+| end to end, exactly 32 tokens | **187.5 ms** | 261.8 ms | 279.2 ms |
+| end to end, natural stop | **51.7 ms** | 102.8 ms | 99.0 ms |
+| *(mean)* end to end, natural stop | **47.1 ms** | 108.1 ms | 121.6 ms |
+| end to end, whole prompt (no cache) | **52.7 ms** | 105.5 ms | 101.4 ms |
 
-For real commands (natural stop, 4-bit) that is 2.1x faster than llama.cpp and 3.0x faster than
-mlx-lm; 1.8x and 1.6x for a fixed 32-token generation, where answer length cannot differ; 5x and
-38x for a fresh process per request. Exact
-speculative decoding (below) is on for instantllm: it never changes the output. The daemon row is
-the median over the 20 prompts with 0 to 3 s of idle time before each request (see "GPU clock"
-below). Raw results: `bench/results/*.tsv`; tables: `bench/table.py`.
+For real commands (natural stop, 4-bit), that is 2.3x faster than llama.cpp and 3.3x faster than
+mlx-lm, or 2.5x and 4.9x by the mean. For a fixed 32-token generation, where answer length cannot
+differ, it is 1.8x and 1.6x. With a fresh process per request it is 5x and 43x. Exact speculative
+decoding (below) is on for instantllm and never changes the output. The daemon row is the median
+over the 20 prompts with 0 to 3 s of idle time before each request (see "GPU clock" below). It was
+measured with the build before the learned drafter, which is slower than the current one. Raw
+results: `bench/results/*.tsv`; tables: `bench/table.py`.
 
 ### Output quality (agreement with an fp32 reference of the original weights)
 

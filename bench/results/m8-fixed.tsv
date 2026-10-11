@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-mlx_lm	8bit	fixed	0	0	161.233	18.242	19	32	216.83	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	8bit	fixed	1	0	160.831	17.710	16	32	216.64	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
-mlx_lm	8bit	fixed	2	0	161.222	17.835	17	32	216.25	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-mlx_lm	8bit	fixed	3	0	160.733	17.770	14	32	216.88	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```<|im_end|>\n<|endoftext|>I'm sorry, but
-mlx_lm	8bit	fixed	4	0	160.512	17.589	14	32	216.93	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	8bit	fixed	5	0	157.535	14.520	10	32	216.80	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-mlx_lm	8bit	fixed	6	0	161.018	18.009	18	32	216.80	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-mlx_lm	8bit	fixed	7	0	160.859	17.809	17	32	216.74	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
-mlx_lm	8bit	fixed	8	0	161.738	18.450	22	32	216.40	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-mlx_lm	8bit	fixed	9	0	161.027	17.956	17	32	216.71	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	8bit	fixed	10	0	160.635	17.609	14	32	216.78	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	8bit	fixed	11	0	160.895	17.692	15	32	216.52	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	8bit	fixed	12	0	160.760	17.689	14	32	216.71	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	8bit	fixed	13	0	157.543	14.617	10	32	216.93	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	8bit	fixed	14	0	160.512	16.187	13	32	214.85	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	8bit	fixed	15	0	161.157	17.789	16	32	216.28	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-mlx_lm	8bit	fixed	16	0	160.833	17.754	16	32	216.70	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	8bit	fixed	17	0	161.010	17.849	17	32	216.58	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist
-mlx_lm	8bit	fixed	18	0	159.332	16.278	13	32	216.74	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	8bit	fixed	19	0	160.952	17.935	17	32	216.80	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
-mlx_lm	8bit	fixed	0	1	161.630	18.204	19	32	216.17	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	8bit	fixed	1	1	161.301	17.805	16	32	216.08	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
-mlx_lm	8bit	fixed	2	1	161.712	17.922	17	32	215.64	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-mlx_lm	8bit	fixed	3	1	161.242	17.669	14	32	215.96	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```<|im_end|>\n<|endoftext|>I'm sorry, but
-mlx_lm	8bit	fixed	4	1	161.034	17.657	14	32	216.25	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	8bit	fixed	5	1	158.194	14.663	10	32	216.02	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-mlx_lm	8bit	fixed	6	1	162.708	18.071	18	32	214.39	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-mlx_lm	8bit	fixed	7	1	161.406	17.949	17	32	216.13	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
-mlx_lm	8bit	fixed	8	1	162.356	18.518	22	32	215.57	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-mlx_lm	8bit	fixed	9	1	161.528	17.953	17	32	215.95	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	8bit	fixed	10	1	161.189	17.665	14	32	216.03	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	8bit	fixed	11	1	161.672	17.891	15	32	215.65	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	8bit	fixed	12	1	161.576	17.739	14	32	215.56	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	8bit	fixed	13	1	158.250	14.692	10	32	215.98	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	8bit	fixed	14	1	159.838	16.184	13	32	215.84	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	8bit	fixed	15	1	161.607	17.786	16	32	215.59	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-mlx_lm	8bit	fixed	16	1	161.496	17.715	16	32	215.64	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	8bit	fixed	17	1	161.593	17.967	17	32	215.88	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist
-mlx_lm	8bit	fixed	18	1	160.083	16.275	13	32	215.61	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	8bit	fixed	19	1	161.501	17.953	17	32	215.99	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+mlx_lm	8bit	fixed	0	0	162.319	18.182	19	32	215.12	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	8bit	fixed	1	0	162.019	17.854	16	32	215.07	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
+mlx_lm	8bit	fixed	2	0	162.106	17.956	17	32	215.09	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+mlx_lm	8bit	fixed	3	0	161.842	17.741	14	32	215.17	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```<|im_end|>\n<|endoftext|>I'm sorry, but
+mlx_lm	8bit	fixed	4	0	162.151	17.707	14	32	214.66	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	8bit	fixed	5	0	158.935	14.697	10	32	214.95	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+mlx_lm	8bit	fixed	6	0	162.708	18.113	18	32	214.44	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+mlx_lm	8bit	fixed	7	0	164.506	17.954	17	32	211.58	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
+mlx_lm	8bit	fixed	8	0	163.197	18.618	22	32	214.46	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+mlx_lm	8bit	fixed	9	0	162.422	17.996	17	32	214.68	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	8bit	fixed	10	0	162.597	17.749	14	32	214.06	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	8bit	fixed	11	0	162.237	17.774	15	32	214.63	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	8bit	fixed	12	0	162.307	17.779	14	32	214.53	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	8bit	fixed	13	0	159.388	14.741	10	32	214.36	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	8bit	fixed	14	0	160.937	16.339	13	32	214.42	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	8bit	fixed	15	0	162.357	17.869	16	32	214.58	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+mlx_lm	8bit	fixed	16	0	162.381	17.808	16	32	214.47	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	8bit	fixed	17	0	162.467	17.993	17	32	214.61	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist
+mlx_lm	8bit	fixed	18	0	160.929	16.390	13	32	214.52	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	8bit	fixed	19	0	162.686	18.009	17	32	214.32	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+mlx_lm	8bit	fixed	0	1	162.372	18.235	19	32	215.12	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	8bit	fixed	1	1	161.730	17.754	16	32	215.35	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
+mlx_lm	8bit	fixed	2	1	162.708	17.915	17	32	214.15	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+mlx_lm	8bit	fixed	3	1	162.125	17.728	14	32	214.73	```sh\nfind . -type f -name "*.swift" -exec cat {} + | wc -l\n```<|im_end|>\n<|endoftext|>I'm sorry, but
+mlx_lm	8bit	fixed	4	1	162.062	17.745	14	32	214.84	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	8bit	fixed	5	1	159.012	14.754	10	32	214.92	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+mlx_lm	8bit	fixed	6	1	162.505	18.127	18	32	214.75	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+mlx_lm	8bit	fixed	7	1	162.416	17.994	17	32	214.69	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
+mlx_lm	8bit	fixed	8	1	162.955	18.427	22	32	214.53	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+mlx_lm	8bit	fixed	9	1	162.523	18.047	17	32	214.61	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	8bit	fixed	10	1	162.593	17.929	14	32	214.33	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	8bit	fixed	11	1	162.396	17.765	15	32	214.38	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	8bit	fixed	12	1	162.527	17.921	14	32	214.42	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	8bit	fixed	13	1	163.905	14.819	10	32	207.99	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	8bit	fixed	14	1	162.256	16.896	13	32	213.33	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	8bit	fixed	15	1	163.118	18.318	16	32	214.14	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+mlx_lm	8bit	fixed	16	1	162.632	17.833	16	32	214.14	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	8bit	fixed	17	1	162.753	18.059	17	32	214.28	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that.<|im_end|>\n<|endoftext|>I apologize, but I can't assist
+mlx_lm	8bit	fixed	18	1	160.775	16.237	13	32	214.51	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	8bit	fixed	19	1	162.850	18.007	17	32	214.07	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,

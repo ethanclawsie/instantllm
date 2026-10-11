@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-mlx_lm	4bit	prefix	0	0	152.961	14.812	19	50	354.76	```sh\ndu -sh /home/user | awk '{print $1}'\n```\n\nThis command uses `du` to display the size of each file in the `/home/user` directory and `awk` to extract only the file sizes.
-mlx_lm	4bit	prefix	1	0	68.034	14.287	16	20	353.63	```sh\nfind . -type f -name "*.py" -mtime -7\n```
-mlx_lm	4bit	prefix	2	0	51.242	14.552	17	14	354.47	netstat -tuln | grep 8080
-mlx_lm	4bit	prefix	3	0	191.921	14.235	14	64	354.62	```sh\nfind . -type f -name "*.swift" -exec grep -n {} {} + | wc -l\n```\n\nThis command uses `find` to locate all Swift files (`*.swift`) in the current directory and its subdirectories. It then uses `grep` to search each file for lines
-mlx_lm	4bit	prefix	4	0	39.588	14.206	14	10	354.83	tar -czvf logs.tar.gz logs/
-mlx_lm	4bit	prefix	5	0	19.790	10.950	10	4	340.98	killall node
-mlx_lm	4bit	prefix	6	0	145.639	15.678	18	47	354.07	```sh\ndu -sh .\n```\n\nThis command uses the `du` command to display the disk usage of each file and directory in the current directory. The `-sh` option sorts the output by size in descending order.
-mlx_lm	4bit	prefix	7	0	159.162	14.519	17	52	352.71	```sh\nfor f in *.txt; do\n  echo "Replacing '$f' with '$f' in '$f'"\ndone\n```\n\nThis command iterates over all `.txt` files in the current directory and replaces each file with itself.
-mlx_lm	4bit	prefix	8	0	46.655	15.671	22	12	355.34	tail -n 50 /var/log/system.log
-mlx_lm	4bit	prefix	9	0	31.425	14.550	17	7	355.91	git checkout -b feature/login
-mlx_lm	4bit	prefix	10	0	115.718	14.206	14	37	354.72	```sh\ngit reset HEAD~1\n```\n\nThis command resets the current branch to the commit before the last one, effectively undoing the last commit but keeping the changes.
-mlx_lm	4bit	prefix	11	0	68.054	14.465	15	20	354.68	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
-mlx_lm	4bit	prefix	12	0	31.572	14.314	14	7	348.27	rm -rf .DS_Store
-mlx_lm	4bit	prefix	13	0	50.394	10.921	10	15	354.84	ipconfig | grep 'inet' | awk '{print $2}'
-mlx_lm	4bit	prefix	14	0	130.772	12.008	13	43	353.74	ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 1500k -b:a 128k -f mp4 output.mp4
-mlx_lm	4bit	prefix	15	0	54.016	14.458	16	15	354.09	ls -lh | sort -nr | head -n 10
-mlx_lm	4bit	prefix	16	0	192.543	14.376	16	64	353.66	git log -n 1 | awk '{print $1}' | awk '{print $2}' | awk '{print $3}' | awk '{print $4}' | awk '{print $5}' | awk '{print $6}' | awk '{print $7}' | awk '{print $8}' | awk
-mlx_lm	4bit	prefix	17	0	42.760	14.545	17	11	354.57	```sh\nrename *.jpeg *.jpg\n```
-mlx_lm	4bit	prefix	18	0	26.104	12.036	13	6	355.81	python3 -m version
-mlx_lm	4bit	prefix	19	0	172.684	14.544	17	57	354.20	```sh\ngrep -r TODO /path/to/javascript/files -v node_modules\n```\n\nThis command searches for the string "TODO" in all JavaScript files located in the specified directory (`/path/to/javascript/files`) and excludes any files that contain the string "node_modules".
-mlx_lm	4bit	prefix	0	1	153.170	14.827	19	50	354.28	```sh\ndu -sh /home/user | awk '{print $1}'\n```\n\nThis command uses `du` to display the size of each file in the `/home/user` directory and `awk` to extract only the file sizes.
-mlx_lm	4bit	prefix	1	1	68.054	14.436	16	20	354.47	```sh\nfind . -type f -name "*.py" -mtime -7\n```
-mlx_lm	4bit	prefix	2	1	51.172	14.490	17	14	354.57	netstat -tuln | grep 8080
-mlx_lm	4bit	prefix	3	1	192.425	14.376	14	64	353.92	```sh\nfind . -type f -name "*.swift" -exec grep -n {} {} + | wc -l\n```\n\nThis command uses `find` to locate all Swift files (`*.swift`) in the current directory and its subdirectories. It then uses `grep` to search each file for lines
-mlx_lm	4bit	prefix	4	1	39.725	14.317	14	10	354.44	tar -czvf logs.tar.gz logs/
-mlx_lm	4bit	prefix	5	1	19.195	10.758	10	4	356.07	killall node
-mlx_lm	4bit	prefix	6	1	144.488	14.704	18	47	354.52	```sh\ndu -sh .\n```\n\nThis command uses the `du` command to display the disk usage of each file and directory in the current directory. The `-sh` option sorts the output by size in descending order.
-mlx_lm	4bit	prefix	7	1	158.485	14.499	17	52	354.28	```sh\nfor f in *.txt; do\n  echo "Replacing '$f' with '$f' in '$f'"\ndone\n```\n\nThis command iterates over all `.txt` files in the current directory and replaces each file with itself.
-mlx_lm	4bit	prefix	8	1	45.957	14.954	22	12	354.94	tail -n 50 /var/log/system.log
-mlx_lm	4bit	prefix	9	1	31.515	14.572	17	7	354.40	git checkout -b feature/login
-mlx_lm	4bit	prefix	10	1	115.652	14.249	14	37	355.11	```sh\ngit reset HEAD~1\n```\n\nThis command resets the current branch to the commit before the last one, effectively undoing the last commit but keeping the changes.
-mlx_lm	4bit	prefix	11	1	67.897	14.343	15	20	354.90	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
-mlx_lm	4bit	prefix	12	1	31.159	14.253	14	7	355.16	rm -rf .DS_Store
-mlx_lm	4bit	prefix	13	1	50.324	10.781	10	15	354.22	ipconfig | grep 'inet' | awk '{print $2}'
-mlx_lm	4bit	prefix	14	1	138.297	11.963	13	43	332.55	ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 1500k -b:a 128k -f mp4 output.mp4
-mlx_lm	4bit	prefix	15	1	54.032	14.591	16	15	355.14	ls -lh | sort -nr | head -n 10
-mlx_lm	4bit	prefix	16	1	192.189	14.479	16	64	354.58	git log -n 1 | awk '{print $1}' | awk '{print $2}' | awk '{print $3}' | awk '{print $4}' | awk '{print $5}' | awk '{print $6}' | awk '{print $7}' | awk '{print $8}' | awk
-mlx_lm	4bit	prefix	17	1	42.659	14.515	17	11	355.52	```sh\nrename *.jpeg *.jpg\n```
-mlx_lm	4bit	prefix	18	1	26.004	11.949	13	6	356.07	python3 -m version
-mlx_lm	4bit	prefix	19	1	172.936	14.632	17	57	353.83	```sh\ngrep -r TODO /path/to/javascript/files -v node_modules\n```\n\nThis command searches for the string "TODO" in all JavaScript files located in the specified directory (`/path/to/javascript/files`) and excludes any files that contain the string "node_modules".
+mlx_lm	4bit	prefix	0	0	153.112	14.779	19	50	354.32	```sh\ndu -sh /home/user | awk '{print $1}'\n```\n\nThis command uses `du` to display the size of each file in the `/home/user` directory and `awk` to extract only the file sizes.
+mlx_lm	4bit	prefix	1	0	67.831	14.342	16	20	355.33	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+mlx_lm	4bit	prefix	2	0	51.133	14.465	17	14	354.68	netstat -tuln | grep 8080
+mlx_lm	4bit	prefix	3	0	192.373	14.342	14	64	353.97	```sh\nfind . -type f -name "*.swift" -exec grep -n {} {} + | wc -l\n```\n\nThis command uses `find` to locate all Swift files (`*.swift`) in the current directory and its subdirectories. It then uses `grep` to search each file for lines
+mlx_lm	4bit	prefix	4	0	39.794	14.361	14	10	354.12	tar -czvf logs.tar.gz logs/
+mlx_lm	4bit	prefix	5	0	19.228	10.770	10	4	355.20	killall node
+mlx_lm	4bit	prefix	6	0	144.858	14.815	18	47	353.83	```sh\ndu -sh .\n```\n\nThis command uses the `du` command to display the disk usage of each file and directory in the current directory. The `-sh` option sorts the output by size in descending order.
+mlx_lm	4bit	prefix	7	0	158.325	14.515	17	52	354.71	```sh\nfor f in *.txt; do\n  echo "Replacing '$f' with '$f' in '$f'"\ndone\n```\n\nThis command iterates over all `.txt` files in the current directory and replaces each file with itself.
+mlx_lm	4bit	prefix	8	0	45.994	14.956	22	12	354.56	tail -n 50 /var/log/system.log
+mlx_lm	4bit	prefix	9	0	31.447	14.512	17	7	354.62	git checkout -b feature/login
+mlx_lm	4bit	prefix	10	0	115.592	14.323	14	37	355.58	```sh\ngit reset HEAD~1\n```\n\nThis command resets the current branch to the commit before the last one, effectively undoing the last commit but keeping the changes.
+mlx_lm	4bit	prefix	11	0	67.909	14.431	15	20	355.40	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+mlx_lm	4bit	prefix	12	0	31.205	14.355	14	7	356.36	rm -rf .DS_Store
+mlx_lm	4bit	prefix	13	0	50.142	10.668	10	15	354.82	ipconfig | grep 'inet' | awk '{print $2}'
+mlx_lm	4bit	prefix	14	0	130.534	11.978	13	43	354.36	ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 1500k -b:a 128k -f mp4 output.mp4
+mlx_lm	4bit	prefix	15	0	54.090	14.389	16	15	352.95	ls -lh | sort -nr | head -n 10
+mlx_lm	4bit	prefix	16	0	192.452	14.692	16	64	354.48	git log -n 1 | awk '{print $1}' | awk '{print $2}' | awk '{print $3}' | awk '{print $4}' | awk '{print $5}' | awk '{print $6}' | awk '{print $7}' | awk '{print $8}' | awk
+mlx_lm	4bit	prefix	17	0	42.828	14.639	17	11	354.98	```sh\nrename *.jpeg *.jpg\n```
+mlx_lm	4bit	prefix	18	0	26.051	12.011	13	6	356.47	python3 -m version
+mlx_lm	4bit	prefix	19	0	172.545	14.568	17	57	354.57	```sh\ngrep -r TODO /path/to/javascript/files -v node_modules\n```\n\nThis command searches for the string "TODO" in all JavaScript files located in the specified directory (`/path/to/javascript/files`) and excludes any files that contain the string "node_modules".
+mlx_lm	4bit	prefix	0	1	155.762	14.887	19	50	347.89	```sh\ndu -sh /home/user | awk '{print $1}'\n```\n\nThis command uses `du` to display the size of each file in the `/home/user` directory and `awk` to extract only the file sizes.
+mlx_lm	4bit	prefix	1	1	70.618	14.573	16	20	339.26	```sh\nfind . -type f -name "*.py" -mtime -7\n```
+mlx_lm	4bit	prefix	2	1	52.522	15.017	17	14	346.90	netstat -tuln | grep 8080
+mlx_lm	4bit	prefix	3	1	196.117	14.667	14	64	347.28	```sh\nfind . -type f -name "*.swift" -exec grep -n {} {} + | wc -l\n```\n\nThis command uses `find` to locate all Swift files (`*.swift`) in the current directory and its subdirectories. It then uses `grep` to search each file for lines
+mlx_lm	4bit	prefix	4	1	41.353	14.505	14	10	335.59	tar -czvf logs.tar.gz logs/
+mlx_lm	4bit	prefix	5	1	19.541	10.956	10	4	350.15	killall node
+mlx_lm	4bit	prefix	6	1	146.853	14.842	18	47	348.54	```sh\ndu -sh .\n```\n\nThis command uses the `du` command to display the disk usage of each file and directory in the current directory. The `-sh` option sorts the output by size in descending order.
+mlx_lm	4bit	prefix	7	1	161.464	14.589	17	52	347.33	```sh\nfor f in *.txt; do\n  echo "Replacing '$f' with '$f' in '$f'"\ndone\n```\n\nThis command iterates over all `.txt` files in the current directory and replaces each file with itself.
+mlx_lm	4bit	prefix	8	1	46.803	15.210	22	12	348.34	tail -n 50 /var/log/system.log
+mlx_lm	4bit	prefix	9	1	31.883	14.644	17	7	348.31	git checkout -b feature/login
+mlx_lm	4bit	prefix	10	1	117.782	14.439	14	37	348.45	```sh\ngit reset HEAD~1\n```\n\nThis command resets the current branch to the commit before the last one, effectively undoing the last commit but keeping the changes.
+mlx_lm	4bit	prefix	11	1	69.087	14.549	15	20	348.48	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+mlx_lm	4bit	prefix	12	1	31.717	14.537	14	7	349.48	rm -rf .DS_Store
+mlx_lm	4bit	prefix	13	1	50.922	10.883	10	15	349.77	ipconfig | grep 'inet' | awk '{print $2}'
+mlx_lm	4bit	prefix	14	1	132.794	12.081	13	43	348.02	ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 1500k -b:a 128k -f mp4 output.mp4
+mlx_lm	4bit	prefix	15	1	54.665	14.540	16	15	349.04	ls -lh | sort -nr | head -n 10
+mlx_lm	4bit	prefix	16	1	195.748	14.462	16	64	347.58	git log -n 1 | awk '{print $1}' | awk '{print $2}' | awk '{print $3}' | awk '{print $4}' | awk '{print $5}' | awk '{print $6}' | awk '{print $7}' | awk '{print $8}' | awk
+mlx_lm	4bit	prefix	17	1	43.361	14.672	17	11	348.75	```sh\nrename *.jpeg *.jpg\n```
+mlx_lm	4bit	prefix	18	1	26.483	12.142	13	6	349.01	python3 -m version
+mlx_lm	4bit	prefix	19	1	175.424	14.579	17	57	348.25	```sh\ngrep -r TODO /path/to/javascript/files -v node_modules\n```\n\nThis command searches for the string "TODO" in all JavaScript files located in the specified directory (`/path/to/javascript/files`) and excludes any files that contain the string "node_modules".

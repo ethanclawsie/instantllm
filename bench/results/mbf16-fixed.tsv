@@ -1,41 +1,41 @@
 engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
-mlx_lm	bf16	fixed	0	0	278.857	25.636	19	32	122.44	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	bf16	fixed	1	0	277.334	24.213	16	32	122.49	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
-mlx_lm	bf16	fixed	2	0	278.909	25.601	17	32	122.40	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-mlx_lm	bf16	fixed	3	0	276.926	24.145	14	32	122.65	`find . -type f -name "*.swift" -exec cat {} + | wc -l`<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-mlx_lm	bf16	fixed	4	0	277.131	24.043	14	32	122.50	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	bf16	fixed	5	0	275.604	23.036	10	32	122.75	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-mlx_lm	bf16	fixed	6	0	278.557	25.760	18	32	122.65	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-mlx_lm	bf16	fixed	7	0	278.339	25.599	17	32	122.67	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
-mlx_lm	bf16	fixed	8	0	278.531	25.831	22	32	122.69	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-mlx_lm	bf16	fixed	9	0	278.488	25.718	17	32	122.66	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	bf16	fixed	10	0	276.684	24.033	14	32	122.72	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	bf16	fixed	11	0	276.619	24.044	15	32	122.75	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	bf16	fixed	12	0	276.306	24.030	14	32	122.90	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	bf16	fixed	13	0	277.772	23.083	10	32	121.74	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	bf16	fixed	14	0	276.093	23.636	13	32	122.81	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	bf16	fixed	15	0	277.267	24.487	16	32	122.65	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-mlx_lm	bf16	fixed	16	0	277.063	24.147	16	32	122.59	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	bf16	fixed	17	0	278.954	25.922	17	32	122.53	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	bf16	fixed	18	0	276.521	23.636	13	32	122.60	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	bf16	fixed	19	0	278.697	25.699	17	32	122.55	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
-mlx_lm	bf16	fixed	0	1	279.121	25.868	19	32	122.42	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	bf16	fixed	1	1	277.115	24.168	16	32	122.57	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
-mlx_lm	bf16	fixed	2	1	279.694	25.773	17	32	122.10	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-mlx_lm	bf16	fixed	3	1	277.144	24.267	14	32	122.60	`find . -type f -name "*.swift" -exec cat {} + | wc -l`<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-mlx_lm	bf16	fixed	4	1	277.391	24.257	14	32	122.48	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	bf16	fixed	5	1	276.219	23.085	10	32	122.48	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
-mlx_lm	bf16	fixed	6	1	279.859	26.558	18	32	122.40	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
-mlx_lm	bf16	fixed	7	1	279.389	25.807	17	32	122.26	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
-mlx_lm	bf16	fixed	8	1	280.452	26.722	22	32	122.19	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
-mlx_lm	bf16	fixed	9	1	279.483	25.832	17	32	122.23	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	bf16	fixed	10	1	277.252	24.047	14	32	122.44	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	bf16	fixed	11	1	278.102	24.063	15	32	122.04	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	bf16	fixed	12	1	277.665	24.112	14	32	122.28	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	bf16	fixed	13	1	276.893	23.085	10	32	122.16	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	bf16	fixed	14	1	277.561	23.715	13	32	122.14	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
-mlx_lm	bf16	fixed	15	1	277.973	24.291	16	32	122.21	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
-mlx_lm	bf16	fixed	16	1	278.144	24.266	16	32	122.12	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	bf16	fixed	17	1	279.247	25.754	17	32	122.30	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
-mlx_lm	bf16	fixed	18	1	277.477	23.950	13	32	122.29	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
-mlx_lm	bf16	fixed	19	1	279.011	25.715	17	32	122.40	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+mlx_lm	bf16	fixed	0	0	279.722	25.827	19	32	122.11	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	bf16	fixed	1	0	278.026	24.307	16	32	122.20	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
+mlx_lm	bf16	fixed	2	0	279.838	25.760	17	32	122.03	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+mlx_lm	bf16	fixed	3	0	277.523	24.161	14	32	122.37	`find . -type f -name "*.swift" -exec cat {} + | wc -l`<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+mlx_lm	bf16	fixed	4	0	277.667	24.224	14	32	122.33	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	bf16	fixed	5	0	276.716	23.036	10	32	122.22	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+mlx_lm	bf16	fixed	6	0	279.293	25.726	18	32	122.27	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+mlx_lm	bf16	fixed	7	0	284.328	25.968	17	32	120.00	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
+mlx_lm	bf16	fixed	8	0	279.668	26.018	22	32	122.23	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+mlx_lm	bf16	fixed	9	0	281.476	25.607	17	32	121.17	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	bf16	fixed	10	0	277.588	24.056	14	32	122.29	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	bf16	fixed	11	0	278.386	23.985	15	32	121.87	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	bf16	fixed	12	0	278.146	24.117	14	32	122.05	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	bf16	fixed	13	0	277.325	23.160	10	32	121.98	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	bf16	fixed	14	0	277.598	23.601	13	32	122.07	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	bf16	fixed	15	0	278.137	24.249	16	32	122.12	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+mlx_lm	bf16	fixed	16	0	278.317	24.173	16	32	122.00	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	bf16	fixed	17	0	279.487	25.789	17	32	122.21	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	bf16	fixed	18	0	277.478	23.532	13	32	122.09	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	bf16	fixed	19	0	280.422	25.721	17	32	121.74	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,
+mlx_lm	bf16	fixed	0	1	280.778	25.890	19	32	121.64	`ls -lh /home/user`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	bf16	fixed	1	1	278.956	24.206	16	32	121.71	```sh\nfind . -type f -name "*.py" -mtime -7\n```<|im_end|>\n<|endoftext|>I apologize, but I can't assist with that
+mlx_lm	bf16	fixed	2	1	281.215	25.839	17	32	121.41	`lsof -i :8080`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+mlx_lm	bf16	fixed	3	1	279.171	24.124	14	32	121.56	`find . -type f -name "*.swift" -exec cat {} + | wc -l`<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+mlx_lm	bf16	fixed	4	1	278.691	24.267	14	32	121.86	tar -czvf logs.tar.gz logs<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	bf16	fixed	5	1	277.540	23.042	10	32	121.83	`killall node`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist
+mlx_lm	bf16	fixed	6	1	280.321	25.777	18	32	121.80	`du -sh *`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't
+mlx_lm	bf16	fixed	7	1	281.343	25.816	17	32	121.33	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```<|im_end|>\n<|endoftext|>I
+mlx_lm	bf16	fixed	8	1	280.606	25.981	22	32	121.76	tail -n 50 /var/log/system.log<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry
+mlx_lm	bf16	fixed	9	1	280.325	25.754	17	32	121.79	`git checkout -b feature/login`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	bf16	fixed	10	1	279.399	24.257	14	32	121.52	`git reset --hard HEAD`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	bf16	fixed	11	1	278.791	24.162	15	32	121.76	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	bf16	fixed	12	1	280.101	24.086	14	32	121.11	`find . -type f -name "*.DS_Store" -exec rm {} \\;`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	bf16	fixed	13	1	278.289	23.225	10	32	121.55	ipconfig -a<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	bf16	fixed	14	1	278.998	23.671	13	32	121.43	`ffmpeg -i video.mov -c:v libx264 -c:a aac video.mp4`<|im_end|>\n<|endoftext|>I'm sorry, but I
+mlx_lm	bf16	fixed	15	1	279.237	24.467	16	32	121.69	ls -lh | sort -nr | head -10<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm
+mlx_lm	bf16	fixed	16	1	279.470	24.301	16	32	121.50	`git log --oneline`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	bf16	fixed	17	1	281.240	25.817	17	32	121.39	`rename *.jpeg *.jpg`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can
+mlx_lm	bf16	fixed	18	1	278.993	23.694	13	32	121.44	python3.8<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with
+mlx_lm	bf16	fixed	19	1	282.031	25.834	17	32	121.02	`grep -r "TODO" *.js`<|im_end|>\n<|endoftext|>I'm sorry, but I can't assist with that.<|im_end|>\n<|endoftext|>I'm sorry,

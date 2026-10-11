@@ -959,6 +959,96 @@ kernel void k_attention(device const float* q [[buffer(0)]],
 
 
 
+// Causal attention for up to 8 rows of one query head per threadgroup: the rows share the K/V
+// rows they read; each score is one thread's 64-term dot product, each row's softmax one
+// simdgroup's, each output element one thread's sum over positions in order, so a row's result
+// does not depend on the rows it is grouped with. Contexts up to ATT_ROWS_MAXL; tree rows use
+// virtual positions like k_attention. Grid (NH, ceil(rows / 8)), 256 threads.
+#define ATT_ROWS_MAXL 512
+kernel void k_attn_rows(device const float* q [[buffer(0)]],
+                        device const half* kc [[buffer(1)]],
+                        device const half* vc [[buffer(2)]],
+                        device float* out [[buffer(3)]],
+                        device const State* st [[buffer(4)]],
+                        constant int& toff [[buffer(5)]],
+                        device half* outh [[buffer(6)]],
+                        device const int* tree [[buffer(7)]],
+                        uint2 tgp [[threadgroup_position_in_grid]],
+                        uint tid [[thread_index_in_threadgroup]],
+                        uint lane [[thread_index_in_simdgroup]],
+                        uint sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    threadgroup float qs[8][HD];
+    threadgroup float S[8][ATT_ROWS_MAXL];
+    threadgroup int prow[8][16];
+    threadgroup int Lr[8];
+    threadgroup float inv[8];
+    const int h = int(tgp.x);
+    const int r0 = toff + int(tgp.y) * 8;
+    const int nr = min(8, st->n - r0);
+    if (nr <= 0) return;
+    const bool tm = st->pad4 != 0;
+    const int p0 = st->pos;
+    const int g = h / (NH / NKV);
+    if (tid < 8) {
+        const int r = int(tid);
+        if (r < nr) {
+            const int t = r0 + r;
+            const int depth = tm ? tree[TR_DEPTH + t] : t;
+            Lr[r] = p0 + depth + 1;
+            if (tm) { int rr = t; for (int d = depth; d >= 0; --d) { prow[r][d] = rr; rr = rr > 0 ? tree[TR_PARENT + rr] : 0; } }
+        } else {
+            Lr[r] = 0;
+        }
+    }
+    for (int i = int(tid); i < 8 * HD; i += 256) {
+        const int r = i / HD, d = i % HD;
+        qs[r][d] = r < nr ? q[(r0 + r) * H + h * HD + d] * 0.125f : 0.f;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    device const half* kb = kc + (ulong)g * st->maxctx * HD;
+    device const half* vb = vc + (ulong)g * st->maxctx * HD;
+    for (int r = 0; r < nr; ++r) {
+        const int L = Lr[r];
+        threadgroup const float4* q4 = (threadgroup const float4*)qs[r];
+        for (int s = int(tid); s < L; s += 256) {
+            const int slot = (tm && s >= p0) ? p0 + prow[r][s - p0] : s;
+            device const half4* kr = (device const half4*)(kb + (ulong)slot * HD);
+            float a = 0.f;
+            for (int j = 0; j < 16; ++j) a += dot(float4(kr[j]), q4[j]);
+            S[r][s] = a;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (int(sg) < nr) {
+        const int r = int(sg), L = Lr[r];
+        float m = -INFINITY;
+        for (int s = int(lane); s < L; s += 32) m = max(m, S[r][s]);
+        m = simd_max(m);
+        float sum = 0.f;
+        for (int s = int(lane); s < L; s += 32) { const float e = exp(S[r][s] - m); S[r][s] = e; sum += e; }
+        sum = simd_sum(sum);
+        if (lane == 0) inv[r] = sum;
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const int r = int(tid) / 32, d = 2 * (int(tid) % 32);
+    if (r < nr) {
+        const int L = Lr[r];
+        float o0 = 0.f, o1 = 0.f;
+        for (int s = 0; s < L; ++s) {
+            const int slot = (tm && s >= p0) ? p0 + prow[r][s - p0] : s;
+            const float e = S[r][s];
+            const float2 v = float2(*((device const half2*)(vb + (ulong)slot * HD + d)));
+            o0 = fma(e, v.x, o0);
+            o1 = fma(e, v.y, o1);
+        }
+        const int o = (r0 + r) * H + h * HD + d;
+        out[o] = o0 / inv[r]; out[o + 1] = o1 / inv[r];
+        outh[o] = half(o0 / inv[r]); outh[o + 1] = half(o1 / inv[r]);
+    }
+}
+
+
 #if FMT == 0 || FMT == 1 || FMT == 2
 // ---------------------------------------------------------------------------------------------
 // q4 (group-64 affine, row-major) / q8 (group-32 symmetric) / f16 decode kernels, templated on T = tokens per pass (T = 1 is plain

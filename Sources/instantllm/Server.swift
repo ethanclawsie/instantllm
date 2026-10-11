@@ -16,16 +16,27 @@ func socketPath() -> String {
 
 /// First existing path among: explicit option, environment variable, next to the binary,
 /// ~/Library/Application Support/instantllm, ./models/ill.
+/// Finds an asset: explicit path, environment variable, then next to the executable, its
+/// ../share/instantllm, ~/Library/Application Support/instantllm, the source tree the executable
+/// was built in (<repo>/.build/<triple>/release -> <repo>/models/ill), and models/ill.
 func resolveAsset(_ explicit: String?, env: String, name: String) -> String {
     if let e = explicit { return e }
     if let v = ProcessInfo.processInfo.environment[env], !v.isEmpty { return v }
-    let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent().path
+    let exeURL = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
+    let exe = exeURL.resolvingSymlinksInPath().deletingLastPathComponent().path
     let home = FileManager.default.homeDirectoryForCurrentUser.path
-    for dir in [exe, exe + "/../share/instantllm", home + "/Library/Application Support/instantllm", "models/ill"] {
+    for dir in [exe, exe + "/../share/instantllm", home + "/Library/Application Support/instantllm", exe + "/../../../models/ill", "models/ill"] {
         let p = dir + "/" + name
         if FileManager.default.fileExists(atPath: p) { return p }
     }
     return "models/ill/" + name
+}
+
+/// The system prompt of the benchmark (bench/system.txt); a system.txt asset or INSTANTLLM_SYSTEM
+/// (a file path) overrides it.
+let builtinSystemPrompt = "You are a command-line assistant on macOS (zsh). Reply with a single shell command that does what the user asks. Output only the command: no explanation, no markdown."
+func defaultSystemPrompt(_ explicitFile: String? = nil) -> String {
+    (try? String(contentsOfFile: resolveAsset(explicitFile, env: "INSTANTLLM_SYSTEM", name: "system.txt"), encoding: .utf8)) ?? builtinSystemPrompt
 }
 
 private func readAll(_ fd: Int32, _ p: UnsafeMutableRawPointer, _ n: Int) -> Bool {
@@ -66,8 +77,7 @@ func serve(args: Args) -> Never {
     let verbose = args.flags.contains("verbose")
     let path = args.options["socket"] ?? socketPath()
     let idleExit = Double(args.int("idle-exit", 900))
-    let defaultSystem = (try? String(contentsOfFile: resolveAsset(args.options["system-file"], env: "INSTANTLLM_SYSTEM", name: "system.txt"),
-                                     encoding: .utf8)) ?? "You are a command-line assistant on macOS (zsh). Reply with a single shell command that does what the user asks. Output only the command: no explanation, no markdown."
+    let defaultSystem = defaultSystemPrompt(args.options["system-file"])
     let tok: Tokenizer
     let engine: Engine
     do {

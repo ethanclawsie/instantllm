@@ -128,6 +128,29 @@ models/fetch.sh                                   # downloads the HF weights (+ 
 # -> killall node
 ```
 
+The binaries find their files from any directory: next to the executable, in
+`~/Library/Application Support/instantllm`, or in the source tree they were built in. So a
+symlink puts `ill` on your PATH:
+
+```sh
+ln -s "$PWD/.build/release/ill" ~/.local/bin/ill      # or any other directory on your PATH
+ill "list the 5 largest files in this directory"      # -> ls -l | sort -nr | head -n 5
+ill -n 128 -s "You are a git expert." "undo my last commit but keep the changes"
+```
+
+The model is small and its commands can be wrong, so review them before running. This zsh
+function (in `~/.zshrc`) puts the command on your prompt instead of running it, without the
+markdown backticks:
+
+```sh
+ai() { print -z -- "$(ill "$*" | sed -E '/^```/d; s/^`(.*)`$/\1/')"; }   # then: ai find large files
+```
+
+The daemon stays resident for 15 minutes after the last request (`--idle-exit SECONDS`) and keeps
+the GPU clock up for 5 of them (`--heat-seconds`). `pkill -f 'instantllm serve'` stops it. To use
+another model, set `INSTANTLLM_MODEL=/path/to/qwen-q8.ill` and restart the daemon; `ill` passes
+its environment on when it starts the daemon.
+
 Speculative decoding uses two tables, both made from the shipped corpus of model outputs
 (`tools/draft/README.md`). The learned drafter's table ships as `tools/draft/ildraft-q4.bin`: copy
 it to `models/ill/ildraft.bin`. The n-gram table, which the drafter falls back to for requests

@@ -263,13 +263,13 @@ case "bench":
 
 case "run":
     // One-shot: tokenize, generate, stream the command to stdout.
-    let system = args.options["system"] ?? ((try? String(contentsOfFile: args.get("system-file", "bench/system.txt"), encoding: .utf8)) ?? "")
+    let system = args.options["system"] ?? defaultSystemPrompt(args.options["system-file"])
     let prompt = args.positional.joined(separator: " ")
     let tok: Tokenizer
     let engine: Engine
     do {
-        tok = try Tokenizer(path: args.get("tokenizer", "models/ill/qwen.tkn"))
-        engine = try Engine(modelPath: args.get("model", "models/ill/qwen-q4.ill"), pinMemory: false)
+        tok = try Tokenizer(path: resolveAsset(args.options["tokenizer"], env: "INSTANTLLM_TOKENIZER", name: "qwen.tkn"))
+        engine = try Engine(modelPath: resolveAsset(args.options["model"], env: "INSTANTLLM_MODEL", name: "qwen-q4.ill"), pinMemory: false)
     } catch { fail("\(error)") }
     if !args.flags.contains("no-heater") { engine.startHeater() }   // the GPU clock ramps while we load
     engine.specT = args.int("spec", engine.defaultSpecT)

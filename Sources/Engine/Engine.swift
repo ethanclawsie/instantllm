@@ -21,7 +21,8 @@ public final class Engine {
     let x, xn, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope: MTLBuffer
     let xnh, attnh, hh: MTLBuffer
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
-    let pRmsRows, pGemmQKV, pGemmO, pGemmGU, pGemmDown: MTLComputePipelineState
+    let pRmsRows: MTLComputePipelineState
+    var pGemmQKV, pGemmO, pGemmGU, pGemmDown: MTLComputePipelineState?
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
     var pG3: [Int: [MTLComputePipelineState]] = [:]  // tokens per tile (8, 16, 32) -> [qkv, o, gu, down]
@@ -30,6 +31,7 @@ public final class Engine {
     /// Prompts of at least this many new tokens use the GEMM prefill path.
     public var gemmThreshold = 2
     var inflight: [MTLCommandBuffer] = []
+    var q4a: Bool { format == .q4a }
     var residency: MTLResidencySet?
 
     /// Tokens whose keys/values are valid in the cache at positions 0..<count.
@@ -132,10 +134,12 @@ public final class Engine {
         pMlpOut = try pipe("k_mlp_out")
         pLMHead = try pipe("k_lm_head")
         pRmsRows = try pipe("k_rmsnorm_rows")
-        pGemmQKV = try pipe("k_gemm_qkv")
-        pGemmO = try pipe("k_gemm_o")
-        pGemmGU = try pipe("k_gemm_gu")
-        pGemmDown = try pipe("k_gemm_down")
+        if model.format != .q4a {
+            pGemmQKV = try pipe("k_gemm_qkv")
+            pGemmO = try pipe("k_gemm_o")
+            pGemmGU = try pipe("k_gemm_gu")
+            pGemmDown = try pipe("k_gemm_down")
+        }
         pRmsRowsH = try pipe("k_rmsnorm_rows_h")
         pF32ToH = try pipe("k_f32_to_h")
         pNoop = try pipe("k_noop")
@@ -147,10 +151,12 @@ public final class Engine {
             line += String(format: " library %.1f pipelines %.1f ms\n", Double(tLib1 - tLib0) / 1e6, Double(tP - tLib1) / 1e6)
             FileHandle.standardError.write(line.data(using: .utf8)!)
         }
-        for tf in 1...4 {
-            pG2.append(try ["qkv", "o", "gu", "down"].map { try pipe("k_g2_\($0)_\(tf)") })
+        if model.format != .q4a {
+            for tf in 1...4 {
+                pG2.append(try ["qkv", "o", "gu", "down"].map { try pipe("k_g2_\($0)_\(tf)") })
+            }
         }
-        if model.format == .q4 {
+        if model.format == .q4 || model.format == .q4a {
             for tt in [8, 16, 32] { pG3[tt] = try ["qkv", "o", "gu", "down"].map { try pipe("k_g3_\($0)_\(tt)") } }
         } else {
             useGemm3 = false
@@ -186,7 +192,7 @@ public final class Engine {
         e.setBuffer(vc, offset: kvOff, index: 7)
         e.setBuffer(rope, offset: 0, index: 8)
         e.setBuffer(state, offset: 0, index: 9)
-        grid(e, 36, n)
+        if q4a { grid(e, 36, n, 64) } else { grid(e, 36, n) }
         } else if part == 1 {
         e.setComputePipelineState(pAttention)
         e.setBuffer(q, offset: 0, index: 0)
@@ -202,7 +208,7 @@ public final class Engine {
         e.setBuffer(attn, offset: 0, index: 2)
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        grid(e, Dims.hidden / 32, n)
+        if q4a { grid(e, 28, n, 64) } else { grid(e, Dims.hidden / 32, n) }
         } else if part == 3 {
         e.setComputePipelineState(pMlpIn)
         w(e, TensorID.layer(l, TensorID.wgu), 0)
@@ -211,7 +217,7 @@ public final class Engine {
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(hbuf, offset: 0, index: 4)
         e.setBuffer(state, offset: 0, index: 5)
-        grid(e, Dims.ff / 16, n)
+        if q4a { grid(e, 304, n, 64) } else { grid(e, Dims.ff / 16, n) }
         } else {
         e.setComputePipelineState(pMlpOut)
         w(e, TensorID.layer(l, TensorID.wd), 0)
@@ -219,7 +225,7 @@ public final class Engine {
         e.setBuffer(hbuf, offset: 0, index: 2)
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        grid(e, Dims.hidden / 32, n)
+        if q4a { grid(e, 56, n, 128) } else { grid(e, Dims.hidden / 32, n) }
         }
     }
 
@@ -306,7 +312,7 @@ public final class Engine {
         let kvOff = l * Dims.kvHeads * maxContext * Dims.headDim * 2
         let L = { TensorID.layer(l, $0) }
         encodeRmsRows(e, normID: L(TensorID.attnNorm), n: n)
-        encodeGemm(e, pGemmQKV, a: xn, wID: L(TensorID.wqkv), sbID: L(TensorID.wqkvSB), biasID: L(TensorID.bqkv),
+        encodeGemm(e, pGemmQKV!, a: xn, wID: L(TensorID.wqkv), sbID: L(TensorID.wqkvSB), biasID: L(TensorID.bqkv),
                    out: q, kvOff: kvOff, rowsPerTG: 32, rows: Dims.qkvRows, n: n)
         e.setComputePipelineState(pAttention)
         e.setBuffer(q, offset: 0, index: 0)
@@ -315,12 +321,12 @@ public final class Engine {
         e.setBuffer(attn, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
         grid(e, Dims.heads, n)
-        encodeGemm(e, pGemmO, a: attn, wID: L(TensorID.wo), sbID: L(TensorID.woSB), biasID: nil,
+        encodeGemm(e, pGemmO!, a: attn, wID: L(TensorID.wo), sbID: L(TensorID.woSB), biasID: nil,
                    out: x, kvOff: kvOff, rowsPerTG: 32, rows: Dims.hidden, n: n)
         encodeRmsRows(e, normID: L(TensorID.mlpNorm), n: n)
-        encodeGemm(e, pGemmGU, a: xn, wID: L(TensorID.wgu), sbID: L(TensorID.wguSB), biasID: nil,
+        encodeGemm(e, pGemmGU!, a: xn, wID: L(TensorID.wgu), sbID: L(TensorID.wguSB), biasID: nil,
                    out: hbuf, kvOff: kvOff, rowsPerTG: 64, rows: 2 * Dims.ff, n: n)
-        encodeGemm(e, pGemmDown, a: hbuf, wID: L(TensorID.wd), sbID: L(TensorID.wdSB), biasID: nil,
+        encodeGemm(e, pGemmDown!, a: hbuf, wID: L(TensorID.wd), sbID: L(TensorID.wdSB), biasID: nil,
                    out: x, kvOff: kvOff, rowsPerTG: 32, rows: Dims.hidden, n: n)
     }
 
@@ -336,7 +342,7 @@ public final class Engine {
         e.setBuffer(logits, offset: 0, index: 7)
         var wl: Int32 = writeLogits ? 1 : 0
         e.setBytes(&wl, length: 4, index: 8)
-        grid(e, Dims.vocab / 32, 1)
+        grid(e, Dims.vocab / 32, 1, q4a ? 64 : 256)
     }
 
     private func encodeCommit(_ e: MTLComputeCommandEncoder) {
@@ -404,6 +410,7 @@ public final class Engine {
         var r: [(String, Double)] = []
         let pt = promptToks.contents().assumingMemoryBound(to: Int32.self)
         for i in 0..<maxPass { pt[i] = Int32(1000 + i) }
+        if gemmThreshold != Int.max {
         r.append(("prefill pass (n=\(n)) incl lm_head+commit", gpuTime(n: n, pos: pos) { e in self.encodePrefill(e, n: n, writeLogits: false) }))
         let kv = { (l: Int) in l * Dims.kvHeads * self.maxContext * Dims.headDim * 2 }
         r.append(("  24x g2 qkv", gpuTime(n: n, pos: pos) { e in
@@ -420,6 +427,7 @@ public final class Engine {
         r.append(("  24x g2 down", gpuTime(n: n, pos: pos) { e in
             for l in 0..<Dims.layers { self.encodeG2(e, 3, a: self.hh, wID: TensorID.layer(l, TensorID.wd), sbID: TensorID.layer(l, TensorID.wdSB), biasID: nil, outf: self.x, outh: self.hh, kvOff: 0, rows: Dims.hidden, n: n) } }))
         r.append(("  lm_head + commit", gpuTime(n: n, pos: pos) { e in self.encodeLMHead(e, writeLogits: false); self.encodeCommit(e) }))
+        }
         r.append(("decode step (1 token)", gpuTime(n: 1, pos: pos + n) { e in self.encodeDecodeStep(e, writeLogits: false) }))
         r.append(("decode 16 steps / 16", gpuTime(n: 1, pos: pos + n, iters: 5) { e in for _ in 0..<16 { self.encodeDecodeStep(e, writeLogits: false) } } / 16))
         r.append(("  24x attn_in (decode)", gpuTime(n: 1, pos: pos + n) { e in for l in 0..<Dims.layers { self.encodeLayerPart(e, l, part: 0) } }))

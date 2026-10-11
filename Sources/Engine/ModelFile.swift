@@ -8,12 +8,16 @@ public enum WeightFormat: UInt32, CustomStringConvertible {
     case f16 = 0
     case q8 = 1
     case q4 = 2
+    /// Affine 4-bit, one group per (row, 28- or 38-wide lane slice), 8-bit E5M3 scale + 6-bit zero
+    /// point, rows interleaved in 16-row blocks for lane-sliced kernels (4.5 / 4.37 bits per weight).
+    case q4a = 3
 
     public var description: String {
         switch self {
         case .f16: return "f16"
         case .q8: return "q8"
         case .q4: return "q4"
+        case .q4a: return "q4a"
         }
     }
 
@@ -22,6 +26,7 @@ public enum WeightFormat: UInt32, CustomStringConvertible {
         case "f16": self = .f16
         case "q8": self = .q8
         case "q4": self = .q4
+        case "q4a": self = .q4a
         default: return nil
         }
     }

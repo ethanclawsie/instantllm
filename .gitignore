@@ -6,3 +6,5 @@ scratch/
 bench/competitors/*/.venv/
 bench/logs/
 .venv/
+__pycache__/
+tools/reference/golden/

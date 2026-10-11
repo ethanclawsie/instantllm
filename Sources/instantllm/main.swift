@@ -19,7 +19,7 @@ struct Args {
                 let key = String(a.dropFirst(2))
                 if let eq = key.firstIndex(of: "=") {
                     options[String(key[..<eq])] = String(key[key.index(after: eq)...])
-                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache"].contains(key) {
+                } else if ["logits-only", "quiet", "verbose", "stats", "detach", "mmap", "ignore-eos", "no-prefix-cache", "sep"].contains(key) {
                     flags.insert(key)
                 } else if let v = it.next() {
                     options[key] = v
@@ -234,6 +234,12 @@ case "run":
         return true
     }
     out.write("\n".data(using: .utf8)!)
+    if args.flags.contains("stats") {
+        let t = engine.lastTiming
+        let gen = (engine.cachedTokens.count - ids.count + 1) + (t.stopToken >= 0 ? 1 : 0)
+        let dec = gen > 1 ? Double(gen - 1) / (ms(t.tFirst, t.tEnd) / 1e3) : Double.nan
+        FileHandle.standardError.write("gen_tokens=\(gen) prefill=\(t.prefillTokens) decode_tok_s=\(String(format: "%.1f", dec))\n".data(using: .utf8)!)
+    }
     if !hadPrefix && !args.flags.contains("no-prefix-cache") { engine.savePrefix(path: prefixFile, tokens: prefixToks) }
 
 case "batch":
@@ -279,12 +285,12 @@ case "idletest":
     let system = (try? String(contentsOfFile: "bench/system.txt", encoding: .utf8)) ?? ""
     let ids = tok.encodeChat(system: system, user: "kill all processes named node")
     _ = engine.generate(ids, maxNew: 8)
+    engine.truncateCache(0)
+    _ = engine.generate(ids, maxNew: 8)
     for idle in [0.0, 0.5, 1, 2, 3, 5, 10] {
         usleep(useconds_t(idle * 1e6))
-        if args.flags.contains("wake") { engine.wake(); usleep(UInt32(args.int("wake-us", 2000))) }
         let t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        engine.truncateCache(0)
-        let out = engine.generate(ids, maxNew: 8)
+        let out = engine.generate(ids, maxNew: 32)
         let t = engine.lastTiming
         print(String(format: "idle %4.1f s: ttft %7.2f ms  e2e %7.2f ms  (%d tokens)", idle, ms(t0, t.tFirst), ms(t0, t.tEnd), out.count))
     }

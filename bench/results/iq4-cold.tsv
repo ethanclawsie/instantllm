@@ -1,0 +1,21 @@
+engine	variant	mode	prompt_idx	rep	e2e_ms	ttft_ms	prefill_tokens	gen_tokens	decode_tok_s	text
+instantllm	q4	cold	0	0	116.653	79.730	19	9	255.9	`ls -lh /home/user`
+instantllm	q4	cold	1	0	264.977	135.964	16	17	126.3	`find . -type f -name "*.py" -mtime +7`
+instantllm	q4	cold	2	0	175.179	129.633	17	13	278.3	`lsof -i :8080`
+instantllm	q4	cold	3	0	153.530	69.623	14	22	260.1	`find . -type f -name "*.swift" -exec cat {} + | wc -l`
+instantllm	q4	cold	4	0	146.519	117.374	14	9	296.4	tar -czvf logs.tar.gz logs
+instantllm	q4	cold	5	0	168.041	145.976	10	6	284.6	`killall node`
+instantllm	q4	cold	6	0	93.880	68.753	18	7	267.5	`du -sh *`
+instantllm	q4	cold	7	0	229.180	112.513	17	29	246.1	```sh\nfind . -type f -name "*.txt" -exec sed -i 's/foo/bar/g' {} \\;\n```
+instantllm	q4	cold	8	0	210.172	169.375	22	12	282.2	tail -n 50 /var/log/system.log
+instantllm	q4	cold	9	0	122.647	92.125	17	9	293.9	`git checkout -b feature/login`
+instantllm	q4	cold	10	0	199.864	167.102	14	8	238.1	`git reset --hard HEAD`
+instantllm	q4	cold	11	0	199.010	121.102	15	20	253.1	```sh\ncurl -O https://example.com/file.zip\nunzip file.zip\n```
+instantllm	q4	cold	12	0	84.088	54.874	14	9	298.9	`rm -rf .DS_Store`
+instantllm	q4	cold	13	0	127.127	115.524	10	3	224.8	ipconfig
+instantllm	q4	cold	14	0	332.791	140.122	13	50	262.1	`ffmpeg -i video.mov -c:v libx264 -c:a aac -b:v 128k -b:a 128k -map 0:v -map 0:a output.mp4`
+instantllm	q4	cold	15	0	462.735	392.940	16	17	238.8	`ls -l | sort -nr | head -n 10`
+instantllm	q4	cold	16	0	165.152	133.629	16	8	241.2	`git log --oneline`
+instantllm	q4	cold	17	0	149.584	111.222	17	8	203.3	`rename *.jpeg *.jpg`
+instantllm	q4	cold	18	0	93.706	74.017	13	5	231.5	python3 -V
+instantllm	q4	cold	19	0	206.380	158.462	17	11	219.5	`grep -r 'TODO' *.js`

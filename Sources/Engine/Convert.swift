@@ -92,7 +92,7 @@ public enum Converter {
                                log: (String) -> Void = { print($0) }) throws {
         let hf = try SafeTensors(path: hfDir + "/model.safetensors")
         let qf = try quantFile.map { try SafeTensors(path: $0) }
-        if qf != nil && format != .q4 { throw EngineError("--quant files hold q4 codes; use --format q4") }
+        if qf != nil && format != .q4 && format != .q4a { throw EngineError("--quant files hold q4 codes; use --format q4") }
         // Unquantized tensors (norms, biases): the quant file may override them (folded transforms).
         func vec(_ name: String) throws -> [Float] {
             if let q = qf, q.has(name) { return try q.anyFloats(name) }
@@ -130,6 +130,11 @@ public enum Converter {
         var guOrder: [Int] = []  // stored row 4b+j of gate||up = original row
         for b in 0..<(F / 2) { guOrder += [2 * b, 2 * b + 1, F + 2 * b, F + 2 * b + 1] }
 
+        if format == .q4a {
+            try convertQ4A(hf: hf, qf: qf, writer: w, vec: vec, log: log)
+            try w.write(to: output, format: format)
+            return
+        }
         let t0 = Date()
         if format == .q4 {
             emitQ4(TensorID.embed, TensorID.embedSB, try q4("model.embed_tokens.weight"))
@@ -166,6 +171,40 @@ public enum Converter {
         }
         try w.write(to: output, format: format)
         log(String(format: "wrote %@ (%.1fs)", output, Date().timeIntervalSince(t0)))
+    }
+
+    static func convertQ4A(hf: SafeTensors, qf: SafeTensors?, writer w: ModelWriter, vec: (String) throws -> [Float],
+                           log: (String) -> Void) throws {
+        // Weights may come pre-transformed (folded activation scaling) from a quant file as f32.
+        func mat(_ name: String) throws -> [Float] {
+            if let q = qf, q.has(name) { return try q.anyFloats(name) }
+            return try hf.floats(name).data
+        }
+        func emit(_ id: Int, _ sbID: Int, _ m: [Float], rows: Int, K: Int) {
+            let packed = Q4A.pack(m, rows: rows, K: K)
+            w.add(id, packed.withUnsafeBufferPointer { Data(buffer: $0) })
+            w.add(sbID, Data())
+        }
+        let H = Dims.hidden, F = Dims.ff
+        let t0 = Date()
+        emit(TensorID.embed, TensorID.embedSB, try mat("model.embed_tokens.weight"), rows: Dims.vocab, K: H)
+        w.add(TensorID.finalNorm, f32Data(try vec("model.norm.weight")))
+        log(String(format: "embedding done (%.1fs)", Date().timeIntervalSince(t0)))
+        let qo = Q4A.qkvOrder(), go = Q4A.guOrder(ff: F)
+        for l in 0..<Dims.layers {
+            let p = "model.layers.\(l)."
+            w.add(TensorID.layer(l, TensorID.attnNorm), f32Data(try vec(p + "input_layernorm.weight")))
+            w.add(TensorID.layer(l, TensorID.mlpNorm), f32Data(try vec(p + "post_attention_layernorm.weight")))
+            let bias = try vec(p + "self_attn.q_proj.bias") + vec(p + "self_attn.k_proj.bias") + vec(p + "self_attn.v_proj.bias")
+            w.add(TensorID.layer(l, TensorID.bqkv), f32Data(qo.map { bias[$0] }))
+            let qkv = try mat(p + "self_attn.q_proj.weight") + mat(p + "self_attn.k_proj.weight") + mat(p + "self_attn.v_proj.weight")
+            emit(TensorID.layer(l, TensorID.wqkv), TensorID.layer(l, TensorID.wqkvSB), reorderRows(qkv, cols: H, order: qo), rows: Dims.qkvRows, K: H)
+            emit(TensorID.layer(l, TensorID.wo), TensorID.layer(l, TensorID.woSB), try mat(p + "self_attn.o_proj.weight"), rows: H, K: H)
+            let gu = try mat(p + "mlp.gate_proj.weight") + mat(p + "mlp.up_proj.weight")
+            emit(TensorID.layer(l, TensorID.wgu), TensorID.layer(l, TensorID.wguSB), reorderRows(gu, cols: H, order: go), rows: 2 * F, K: H)
+            emit(TensorID.layer(l, TensorID.wd), TensorID.layer(l, TensorID.wdSB), try mat(p + "mlp.down_proj.weight"), rows: H, K: F)
+            log(String(format: "layer %d done (%.1fs)", l, Date().timeIntervalSince(t0)))
+        }
     }
 
     // Stored row i of the QKV matrix = original row qkvRowOrder()[i].

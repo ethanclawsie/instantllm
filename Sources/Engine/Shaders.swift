@@ -91,6 +91,22 @@ inline float embed_at(device const uchar* E, device const half2* SB, int row, in
     const float2 sb = float2(SB[row * (H / 64) + (i >> 6)]);
     return sb.x * q + sb.y;
 }
+#elif FMT == 3
+typedef uchar wtype;
+#define Q4A_B896 8064     // bytes per 16-row block, K = 896 (14 nibble chunks + scales + zero points)
+#define Q4A_B4864 10624   // bytes per (16-row block, K quarter), K = 4864 (19 nibble chunks + ...)
+inline float embed_at(device const uchar* E, device const half2* SB, int row, int i) {
+    const int b = row >> 4, r = row & 15;
+    const int l = i / 28, j = i - l * 28;
+    device const uchar* pb = E + (ulong)b * Q4A_B896;
+    const uchar byte = pb[((j >> 1) * 32 + l) * 16 + r];
+    const float n = float((j & 1) ? (byte >> 4) : (byte & 0xF));
+    const float s = float(as_type<half>(ushort(ushort(pb[(14 * 32 + l) * 16 + r]) << 7)));
+    const uint2 zl = ((device const uint2*)(pb + 15 * 512))[l];
+    const uint zh = ((device const uint*)(pb + 15 * 512 + 256))[l];
+    const uint zq = (((r < 8 ? zl.x : zl.y) >> (4 * (r & 7))) & 0xFu) | (((zh >> (2 * r)) & 0x3u) << 4);
+    return s * (n - float(zq) * 0.25f);
+}
 #endif
 
 // ---------------------------------------------------------------------------------------------
@@ -187,6 +203,7 @@ kernel void k_commit(device const float* pval [[buffer(0)]],
     for (uint i = tid; i < H; i += 1024) x[i] = embed_at(E, ESB, tok, i);
 }
 
+#if FMT != 3
 // ---------------------------------------------------------------------------------------------
 // RMSNorm + QKV projection + bias + RoPE + KV-cache write. Grid (36, n), 256 threads.
 // Rows are stored in blocks of 32: block b = 2*head + half holds dims [16*half, 16*half+16) and
@@ -240,6 +257,8 @@ kernel void k_attn_in(device const wtype* W [[buffer(0)]],
         }
     }
 }
+
+#endif
 
 // Causal attention for one (query head, token). Grid (14, n), 256 threads.
 #define MAXCTX_TG 2048
@@ -296,6 +315,7 @@ kernel void k_attention(device const float* q [[buffer(0)]],
     if (tid < HD) out[t * H + h * HD + tid] = (part[tid] + part[tid + 64] + part[tid + 128] + part[tid + 192]) / sum;
 }
 
+#if FMT != 3
 // Output projection + residual. Grid (28, n), 256 threads, 32 rows per threadgroup.
 kernel void k_o_proj(device const wtype* W [[buffer(0)]],
                      device const half2* SB [[buffer(1)]],
@@ -408,6 +428,229 @@ kernel void k_lm_head(device const wtype* E [[buffer(0)]],
     }
 }
 
+#endif
+
+#if FMT == 3
+// ---------------------------------------------------------------------------------------------
+// q4a decode kernels (lane-sliced K): a simdgroup owns a 16-row block; lane l holds input columns
+// [28l, 28l+28) in registers (pre-scaled by 16 for the fp16 nibble unpack); after the butterfly
+// reduction row r of the block lives in lanes 2r and 2r+1.
+
+// Transposed reduction: each lane holds 16 row partials; returns the full sum of row (lane >> 1) & 15.
+static inline float reduce16(thread float* v, ushort lane) {
+    float t8[8], t4[4], t2[2];
+    bool b = (lane & 16) != 0;
+    for (int i = 0; i < 8; i++) { const float keep = b ? v[8 + i] : v[i], send = b ? v[i] : v[8 + i]; t8[i] = keep + simd_shuffle_xor(send, 16); }
+    b = (lane & 8) != 0;
+    for (int i = 0; i < 4; i++) { const float keep = b ? t8[4 + i] : t8[i], send = b ? t8[i] : t8[4 + i]; t4[i] = keep + simd_shuffle_xor(send, 8); }
+    b = (lane & 4) != 0;
+    for (int i = 0; i < 2; i++) { const float keep = b ? t4[2 + i] : t4[i], send = b ? t4[i] : t4[2 + i]; t2[i] = keep + simd_shuffle_xor(send, 4); }
+    b = (lane & 2) != 0;
+    const float keep = b ? t2[1] : t2[0], send = b ? t2[0] : t2[1];
+    const float t1 = keep + simd_shuffle_xor(send, 2);
+    return t1 + simd_shuffle_xor(t1, 1);
+}
+
+static inline void e5m3x4(uint w, thread float* s) {
+    const half2 a = as_type<half2>((w << 7) & 0x7F807F80u);
+    const half2 b = as_type<half2>((w >> 1) & 0x7F807F80u);
+    s[0] = a.x; s[1] = b.x; s[2] = a.y; s[3] = b.y;
+}
+
+// 16 rows x 2 columns of nibbles -> fp16 (1 + n/16) without int->float conversions.
+static inline void q4a_chunk(uint4 w, float x0, float x1, thread float4* acc) {
+    for (int j = 0; j < 4; j++) {
+        const uint ww = w[j];
+        const half2 a = as_type<half2>(((ww << 6) & 0x03C003C0u) | 0x3C003C00u);
+        const half2 c = as_type<half2>(((ww << 2) & 0x03C003C0u) | 0x3C003C00u);
+        const half2 b = as_type<half2>(((ww >> 2) & 0x03C003C0u) | 0x3C003C00u);
+        const half2 d = as_type<half2>(((ww >> 6) & 0x03C003C0u) | 0x3C003C00u);
+        acc[j].x = fma(float(a.x), x0, acc[j].x); acc[j].x = fma(float(c.x), x1, acc[j].x);
+        acc[j].y = fma(float(b.x), x0, acc[j].y); acc[j].y = fma(float(d.x), x1, acc[j].y);
+        acc[j].z = fma(float(a.y), x0, acc[j].z); acc[j].z = fma(float(c.y), x1, acc[j].z);
+        acc[j].w = fma(float(b.y), x0, acc[j].w); acc[j].w = fma(float(d.y), x1, acc[j].w);
+    }
+}
+
+// Per-row partials (lane-local, before the reduction) of one block. NN nibble chunks, loads in batches of BT.
+template<int NN, int BT>
+static inline void q4a_dot(device const uchar* pb, thread const float* xv, float X, ushort lane, thread float* v) {
+    device const uint4* p = (device const uint4*)pb + lane;
+    float4 acc[4] = {float4(0.f), float4(0.f), float4(0.f), float4(0.f)};
+    for (int c0 = 0; c0 < NN; c0 += BT) {
+        uint4 w[BT];
+        for (int c = 0; c < BT; c++) if (c0 + c < NN) w[c] = p[(c0 + c) * 32];
+        for (int c = 0; c < BT; c++) if (c0 + c < NN) q4a_chunk(w[c], xv[2 * (c0 + c)], xv[2 * (c0 + c) + 1], acc);
+    }
+    const uint4 sc = p[NN * 32];
+    const uint2 zl = ((device const uint2*)(pb + (NN + 1) * 512))[lane];
+    const uint zh = ((device const uint*)(pb + (NN + 1) * 512 + 256))[lane];
+    float sv[16];
+    for (int j = 0; j < 4; j++) e5m3x4(sc[j], sv + 4 * j);
+    for (int r = 0; r < 16; r++) {
+        const uint lo = ((r < 8 ? zl.x : zl.y) >> (4 * (r & 7))) & 0xFu;
+        const uint hi = (zh >> (2 * r)) & 0x3u;
+        const float z = float(lo | (hi << 4)) * 0.25f + 16.0f;
+        v[r] = sv[r] * fma(-z, X, acc[r >> 2][r & 3]);
+    }
+}
+
+// Lane's 28-column slice of RMSNorm(x) * w (the whole 896-vector norm via one simd_sum), x16.
+static inline void slice_norm(device const float* x, device const float* w, ushort lane, thread float* xv, thread float& X) {
+    device const float4* xs = (device const float4*)(x + lane * 28);
+    float ss = 0.f;
+    for (int i = 0; i < 7; i++) { const float4 t = xs[i]; xv[4*i] = t.x; xv[4*i+1] = t.y; xv[4*i+2] = t.z; xv[4*i+3] = t.w; ss += dot(t, t); }
+    ss = simd_sum(ss);
+    const float scale = rsqrt(ss / float(H) + EPS);
+    device const float4* ws = (device const float4*)(w + lane * 28);
+    float sum = 0.f;
+    for (int i = 0; i < 7; i++) {
+        const float4 t = float4(xv[4*i], xv[4*i+1], xv[4*i+2], xv[4*i+3]) * scale * ws[i];
+        sum += t.x + t.y + t.z + t.w;
+        xv[4*i] = 16.f * t.x; xv[4*i+1] = 16.f * t.y; xv[4*i+2] = 16.f * t.z; xv[4*i+3] = 16.f * t.w;
+    }
+    X = sum;
+}
+
+static inline void slice_plain(device const float* x, ushort lane, thread float* xv, thread float& X) {
+    device const float4* xs = (device const float4*)(x + lane * 28);
+    float sum = 0.f;
+    for (int i = 0; i < 7; i++) {
+        const float4 t = xs[i];
+        sum += t.x + t.y + t.z + t.w;
+        xv[4*i] = 16.f * t.x; xv[4*i+1] = 16.f * t.y; xv[4*i+2] = 16.f * t.z; xv[4*i+3] = 16.f * t.w;
+    }
+    X = sum;
+}
+
+// RMSNorm + QKV + bias + RoPE + KV write. Grid (36, n), 64 threads (2 blocks per threadgroup).
+kernel void k_attn_in(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
+                      device const float* bias [[buffer(2)]], device const float* wnorm [[buffer(3)]],
+                      device const float* x [[buffer(4)]], device float* q [[buffer(5)]],
+                      device half* kc [[buffer(6)]], device half* vc [[buffer(7)]],
+                      device const float2* rope [[buffer(8)]], device const State* st [[buffer(9)]],
+                      uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                      ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    const int t = tgp.y;
+    if (t >= st->n) return;
+    const int pos = st->pos + t;
+    const uint b = tgp.x * 2 + sg;
+    float xv[28], X, v[16];
+    slice_norm(x + t * H, wnorm, lane, xv, X);
+    q4a_dot<14, 4>(W + (ulong)b * Q4A_B896, xv, X, lane, v);
+    const int rr = (lane >> 1) & 15;
+    const float y = reduce16(v, lane) + bias[b * 16 + rr];
+    if (b < 64) {
+        const float partner = simd_shuffle_down(y, 16);
+        if ((lane & 1) == 0 && lane < 16) {
+            const int head = b >> 2, d = 8 * (b & 3) + rr;
+            const float2 cs = rope[pos * 32 + d];
+            const float a2 = y * cs.x - partner * cs.y;
+            const float b2 = partner * cs.x + y * cs.y;
+            if (head < NH) {
+                q[t * H + head * HD + d] = a2;
+                q[t * H + head * HD + d + 32] = b2;
+            } else {
+                device half* k = kc + ((ulong)(head - NH) * st->maxctx + pos) * HD;
+                k[d] = half(a2); k[d + 32] = half(b2);
+            }
+        }
+    } else if ((lane & 1) == 0) {
+        const int vb = b - 64;
+        device half* vv = vc + ((ulong)(vb >> 2) * st->maxctx + pos) * HD;
+        vv[16 * (vb & 3) + rr] = half(y);
+    }
+}
+
+// Output projection + residual. Grid (28, n), 64 threads.
+kernel void k_o_proj(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
+                     device const float* a [[buffer(2)]], device float* x [[buffer(3)]],
+                     device const State* st [[buffer(4)]],
+                     uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                     ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    const int t = tgp.y;
+    if (t >= st->n) return;
+    const uint b = tgp.x * 2 + sg;
+    float xv[28], X, v[16];
+    slice_plain(a + t * H, lane, xv, X);
+    q4a_dot<14, 4>(W + (ulong)b * Q4A_B896, xv, X, lane, v);
+    const float y = reduce16(v, lane);
+    if ((lane & 1) == 0) x[t * H + b * 16 + (lane >> 1)] += y;
+}
+
+// RMSNorm + gate/up + SiLU(gate)*up. Block b = gate rows 8b..8b+7, then up rows. Grid (304, n), 64 threads.
+kernel void k_mlp_in(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
+                     device const float* wnorm [[buffer(2)]], device const float* x [[buffer(3)]],
+                     device float* hbuf [[buffer(4)]], device const State* st [[buffer(5)]],
+                     uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                     ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    const int t = tgp.y;
+    if (t >= st->n) return;
+    const uint b = tgp.x * 2 + sg;
+    float xv[28], X, v[16];
+    slice_norm(x + t * H, wnorm, lane, xv, X);
+    q4a_dot<14, 4>(W + (ulong)b * Q4A_B896, xv, X, lane, v);
+    const float y = reduce16(v, lane);
+    const float u = simd_shuffle_down(y, 16);
+    if ((lane & 1) == 0 && lane < 16) hbuf[t * FF + 8 * b + (lane >> 1)] = y / (1.f + exp(-y)) * u;
+}
+
+// Down projection + residual: 4 simdgroups split K into quarters of 1216 (lane slices of 38).
+// Grid (56, n), 128 threads.
+kernel void k_mlp_out(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
+                      device const float* hbuf [[buffer(2)]], device float* x [[buffer(3)]],
+                      device const State* st [[buffer(4)]],
+                      uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                      ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    const int t = tgp.y;
+    if (t >= st->n) return;
+    threadgroup float red[4][16];
+    const uint b = tgp.x;
+    device const float2* hs = (device const float2*)(hbuf + t * FF + sg * 1216 + lane * 38);
+    float xv[38], X = 0.f, v[16];
+    for (int i = 0; i < 19; i++) { const float2 h2 = hs[i]; X += h2.x + h2.y; xv[2 * i] = 16.f * h2.x; xv[2 * i + 1] = 16.f * h2.y; }
+    q4a_dot<19, 3>(W + ((ulong)b * 4 + sg) * Q4A_B4864, xv, X, lane, v);
+    const float y = reduce16(v, lane);
+    if ((lane & 1) == 0) red[sg][lane >> 1] = y;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sg == 0 && lane < 16) x[t * H + b * 16 + lane] += red[0][lane] + red[1][lane] + red[2][lane] + red[3][lane];
+}
+
+// Final RMSNorm + tied lm_head on the last token of the pass + per-threadgroup argmax.
+// Grid (4748), 64 threads: 2 blocks of 16 vocabulary rows per threadgroup.
+kernel void k_lm_head(device const uchar* E [[buffer(0)]], device const half2* ESB [[buffer(1)]],
+                      device const float* wnorm [[buffer(2)]], device const float* x [[buffer(3)]],
+                      device float* pval [[buffer(4)]], device int* pidx [[buffer(5)]],
+                      device const State* st [[buffer(6)]], device float* logits [[buffer(7)]],
+                      constant int& write_logits [[buffer(8)]],
+                      uint tg [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                      ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    threadgroup float bv[2];
+    threadgroup int bix[2];
+    const uint b = tg * 2 + sg;
+    float xv[28], X, v[16];
+    slice_norm(x + (st->n - 1) * H, wnorm, lane, xv, X);
+    q4a_dot<14, 4>(E + (ulong)b * Q4A_B896, xv, X, lane, v);
+    const float y = reduce16(v, lane);
+    const int row = b * 16 + ((lane >> 1) & 15);
+    if (write_logits && (lane & 1) == 0) logits[row] = y;
+    const float m = simd_max(y);
+    const int idx = simd_min(y == m ? row : 0x7fffffff);
+    if (lane == 0) { bv[sg] = m; bix[sg] = idx; }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sg == 0 && lane == 0) {
+        const bool second = bv[1] > bv[0];
+        pval[tg] = second ? bv[1] : bv[0];
+        pidx[tg] = second ? bix[1] : bix[0];
+    }
+}
+#endif
+
 // ---------------------------------------------------------------------------------------------
 // Prefill path: batched GEMMs on simdgroup matrices. A = activations [n][K] (f32), W = [R][K].
 // Each threadgroup (4 simdgroups) computes RT rows x 32 tokens; per 32-wide K step it dequantizes
@@ -435,6 +678,7 @@ kernel void k_rmsnorm_rows(device const float* x [[buffer(0)]],
     for (uint i = tid; i < H; i += 256) xn[t * H + i] = xr[i] * scale * w[i];
 }
 
+#if FMT != 3
 #define GT 32   // tokens per threadgroup
 #define GK 32   // K step
 
@@ -564,6 +808,7 @@ GEMM_KERNEL(k_gemm_o, H, 32, 1)
 GEMM_KERNEL(k_gemm_gu, H, 64, 2)
 GEMM_KERNEL(k_gemm_down, FF, 32, 1)
 
+#endif
 // ---------------------------------------------------------------------------------------------
 // Prefill GEMM v2: activations X are half [n][K]; each threadgroup computes 32 rows x TF*8 tokens
 // with NS simdgroups splitting K (intra-threadgroup split-K), then reduces through threadgroup
@@ -597,6 +842,7 @@ kernel void k_f32_to_h(device const float* a [[buffer(0)]], device half* b [[buf
     b[i] = half(a[i]);
 }
 
+#if FMT != 3
 template<int K, int MODE, int TF, int NS>
 inline void gemm2_body(device const half* X, device const wtype* W, device const half2* SB,
                        device const float* bias, device float* outf, device half* outh,
@@ -714,6 +960,7 @@ GEMM2_ALL(1)
 GEMM2_ALL(2)
 GEMM2_ALL(3)
 GEMM2_ALL(4)
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // Prefill GEMM v3: Neural Accelerators (MPP matmul2d). Each threadgroup computes 32 rows x TT
@@ -832,5 +1079,156 @@ GEMM3(k_g3_down_##TT, FF, 1, TT, 4)
 GEMM3_ALL(8)
 GEMM3_ALL(16)
 GEMM3_ALL(32)
+#endif
+
+// ---------------------------------------------------------------------------------------------
+// Prefill GEMM on the Neural Accelerators for q4a weights. Threadgroup = 4 simdgroups, tile =
+// 32 rows (two 16-row blocks) x TT tokens. Per K step a simdgroup dequantizes its own 32 x BK tile
+// (BK = 4 lane slices of 28 for K = 896, 2 slices of 38 for K = 4864) straight from the interleaved
+// layout: lane i takes block/slice group i / LPG and every LPG-th nibble chunk of it.
+#if FMT == 3
+template<int K>
+inline void q4a_tile(device const uchar* W, uint blk0, uint step, threadgroup half* ws, ushort lane) {
+    constexpr int COLS = K == H ? 28 : 38;          // lane-slice width
+    constexpr int NN = COLS / 2;                     // nibble chunks per slice
+    constexpr int SL = K == H ? 4 : 2;               // slices per step
+    constexpr int BK = SL * COLS;
+    constexpr int LPG = 32 / (2 * SL);               // lanes per (block, slice) group
+    constexpr uint BB = K == H ? Q4A_B896 : Q4A_B4864;
+    const int grp = lane / LPG, sub = lane % LPG;
+    const int bb = grp / SL, ls = grp % SL;
+    uint unit, l;
+    if (K == H) { unit = blk0 + bb; l = step * SL + ls; }
+    else { const uint q = step / 16; unit = (blk0 + bb) * 4 + q; l = (step % 16) * SL + ls; }
+    device const uchar* pb = W + (ulong)unit * BB;
+    const uint4 sc = ((device const uint4*)(pb + NN * 512))[l];
+    const uint2 zl = ((device const uint2*)(pb + (NN + 1) * 512))[l];
+    const uint zh = ((device const uint*)(pb + (NN + 1) * 512 + 256))[l];
+    float sv[16], zv[16];
+    for (int j = 0; j < 4; j++) e5m3x4(sc[j], sv + 4 * j);
+    for (int r = 0; r < 16; r++) {
+        const uint lo = ((r < 8 ? zl.x : zl.y) >> (4 * (r & 7))) & 0xFu;
+        zv[r] = float(lo | (((zh >> (2 * r)) & 0x3u) << 4)) * 0.25f;
+    }
+    threadgroup half* dst = ws + (16 * bb) * BK + COLS * ls;
+    for (int c = sub; c < NN; c += LPG) {
+        const uint4 w = ((device const uint4*)(pb + c * 512))[l];
+        for (int j = 0; j < 4; j++) {
+            const uint ww = w[j];
+            for (int k = 0; k < 4; k++) {
+                const int r = 4 * j + k;
+                const uint byte = (ww >> (8 * k)) & 0xFFu;
+                dst[r * BK + 2 * c] = half(sv[r] * (float(byte & 0xFu) - zv[r]));
+                dst[r * BK + 2 * c + 1] = half(sv[r] * (float(byte >> 4) - zv[r]));
+            }
+        }
+    }
+}
+
+template<int K, int MODE, int TT>
+inline void gemm3a_body(device half* X, device const uchar* W, device const float* bias, device float* outf,
+                        device half* outh, device half* kc, device half* vc, device const float2* rope,
+                        device const State* st, threadgroup half* Wsg, threadgroup float* Os,
+                        uint2 tgp, uint tid, ushort lane, ushort sg) {
+    constexpr int NS = 4;
+    constexpr int SL = K == H ? 4 : 2;
+    constexpr int BK = SL * (K == H ? 28 : 38);
+    constexpr int NSTEP = K / BK;
+    const int n = st->n;
+    const uint blk0 = tgp.x * 2;
+    const uint r0 = tgp.x * 32;
+    const int t0 = tgp.y * TT;
+    threadgroup half* ws = Wsg + sg * 32 * BK;
+    auto tX = tensor(X + (ulong)t0 * K, dextents<int, 2>(K, TT), array<int, 2>({1, K}));
+    auto tW = tensor(ws, dextents<int, 2>(BK, 32), array<int, 2>({1, BK}));
+    constexpr auto desc = matmul2d_descriptor(TT, 32, BK, false, true, false, matmul2d_descriptor::mode::multiply_accumulate);
+    matmul2d<desc, execution_simdgroup> op;
+    auto cT = op.template get_destination_cooperative_tensor<decltype(tX), decltype(tW), float>();
+    for (int i = 0; i < cT.get_capacity(); i++) if (cT.is_valid_element(i)) cT[i] = 0.f;
+    for (uint step = sg; step < (uint)NSTEP; step += NS) {
+        q4a_tile<K>(W, blk0, step, ws, lane);
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+        uint kcol;
+        if (K == H) kcol = step * BK;
+        else kcol = (step / 16) * 1216 + (step % 16) * BK;
+        auto a = tX.template slice<BK, TT>(kcol, 0);
+        op.run(a, tW, cT);
+        simdgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    auto tO = tensor(Os + sg * TT * 32, dextents<int, 2>(32, TT), array<int, 2>({1, 32}));
+    cT.store(tO);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    constexpr int NT = NS * 32;
+    if (MODE == 0) {
+        // two 16-row blocks: q/k blocks pair row i with row i + 8 (dims 8m+i, 32+8m+i); v blocks plain
+        for (int w = tid; w < TT * 16; w += NT) {
+            const int t = w / 16, bb = (w % 16) / 8, i = w % 8;
+            if (t0 + t >= n) continue;
+            const int b = blk0 + bb;
+            const int ra = 16 * bb + i, rb = ra + 8;
+            float a = bias[r0 + ra], c = bias[r0 + rb];
+            for (int q = 0; q < NS; ++q) { a += Os[q * TT * 32 + t * 32 + ra]; c += Os[q * TT * 32 + t * 32 + rb]; }
+            const int pos = st->pos + t0 + t;
+            if (b < 64) {
+                const int head = b >> 2, d = 8 * (b & 3) + i;
+                const float2 cs = rope[pos * 32 + d];
+                const float a2 = a * cs.x - c * cs.y;
+                const float c2 = c * cs.x + a * cs.y;
+                if (head < NH) {
+                    outf[(t0 + t) * H + head * HD + d] = a2;
+                    outf[(t0 + t) * H + head * HD + d + 32] = c2;
+                } else {
+                    device half* k = kc + ((ulong)(head - NH) * st->maxctx + pos) * HD;
+                    k[d] = half(a2); k[d + 32] = half(c2);
+                }
+            } else {
+                const int vb = b - 64;
+                device half* v = vc + ((ulong)(vb >> 2) * st->maxctx + pos) * HD + 16 * (vb & 3);
+                v[i] = half(a); v[i + 8] = half(c);
+            }
+        }
+    } else if (MODE == 1) {
+        for (int w = tid; w < TT * 32; w += NT) {
+            const int t = w / 32, r = w % 32;
+            if (t0 + t >= n) continue;
+            float v = 0.f;
+            for (int q = 0; q < NS; ++q) v += Os[q * TT * 32 + w];
+            outf[(t0 + t) * H + r0 + r] += v;
+        }
+    } else {
+        // block b: rows 0-7 = gate 8b+i, rows 8-15 = up 8b+i
+        for (int w = tid; w < TT * 16; w += NT) {
+            const int t = w / 16, bb = (w % 16) / 8, i = w % 8;
+            if (t0 + t >= n) continue;
+            float g = 0.f, u = 0.f;
+            for (int q = 0; q < NS; ++q) { g += Os[q * TT * 32 + t * 32 + 16 * bb + i]; u += Os[q * TT * 32 + t * 32 + 16 * bb + 8 + i]; }
+            outh[(t0 + t) * FF + 8 * (blk0 + bb) + i] = half(g / (1.f + exp(-g)) * u);
+        }
+    }
+}
+
+#define GEMM3A(NAME, K, MODE, TT) \
+kernel void NAME(device half* X [[buffer(0)]], device const uchar* W [[buffer(1)]], \
+                 device const half2* SB [[buffer(2)]], device const float* bias [[buffer(3)]], \
+                 device float* outf [[buffer(4)]], device half* outh [[buffer(5)]], \
+                 device half* kc [[buffer(6)]], device half* vc [[buffer(7)]], \
+                 device const float2* rope [[buffer(8)]], device const State* st [[buffer(9)]], \
+                 uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]], \
+                 ushort lane [[thread_index_in_simdgroup]], ushort sg [[simdgroup_index_in_threadgroup]]) { \
+    if (st->done || (int)(tgp.y * TT) >= st->n) return; \
+    constexpr int BKX = K == H ? 112 : 76; \
+    constexpr int WB = 4 * 32 * BKX * 2, OB = 4 * TT * 32 * 4; \
+    threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
+    gemm3a_body<K, MODE, TT>(X, W, bias, outf, outh, kc, vc, rope, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
+}
+#define GEMM3A_ALL(TT) \
+GEMM3A(k_g3_qkv_##TT, H, 0, TT) \
+GEMM3A(k_g3_o_##TT, H, 1, TT) \
+GEMM3A(k_g3_gu_##TT, H, 2, TT) \
+GEMM3A(k_g3_down_##TT, FF, 1, TT)
+GEMM3A_ALL(8)
+GEMM3A_ALL(16)
+GEMM3A_ALL(32)
 #endif
 """#

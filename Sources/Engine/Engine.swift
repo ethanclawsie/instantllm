@@ -192,10 +192,8 @@ public final class Engine {
                 pG2.append(try ["qkv", "o", "gu", "down"].map { try pipe("k_g2_\($0)_\(tf)") })
             }
         }
-        if model.format != .f16 {
+        do {
             for tt in [8, 16, 24, 32] { pG3[tt] = try ["qkv", "o", "gu", "down"].map { try pipe("k_g3_\($0)_\(tt)") } }
-        } else {
-            useGemm3 = false
         }
     }
 

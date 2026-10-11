@@ -1332,7 +1332,7 @@ GEMM2_ALL(4)
 // tokens; its NS simdgroups split K, each dequantizing its own 32 x 64 weight tile into private
 // threadgroup memory per step and running matmul2d with activations read from device memory.
 // Partial tiles are reduced through threadgroup memory (deterministic), then the epilogue runs.
-#if FMT == 1 || FMT == 2
+#if FMT == 0 || FMT == 1 || FMT == 2
 template<int K, int MODE, int TT, int NS>
 inline void gemm3_body(device half* X, device const wtype* W, device const half2* SB,
                        device const float* bias, device float* outf, device half* outh,
@@ -1352,7 +1352,18 @@ inline void gemm3_body(device half* X, device const wtype* W, device const half2
     matmul2d<desc, execution_simdgroup> op;
     auto cT = op.template get_destination_cooperative_tensor<decltype(tX), decltype(tW), float>();
     for (int i = 0; i < cT.get_capacity(); i++) if (cT.is_valid_element(i)) cT[i] = 0.f;
-#if FMT == 1
+#if FMT == 0
+    // f16 weights are used in place: the right operand is a tensor view of the 32 rows in device memory.
+    auto tWd = tensor((device half*)(W + (ulong)r0 * K), dextents<int, 2>(K, 32), array<int, 2>({1, K}));
+    for (int i = 0; i < NSTEP; i++) {
+        const uint k0 = (sg * NSTEP + i) * BK;
+        auto a = tX.template slice<BK, TT>(k0, 0);
+        auto b = tWd.template slice<BK, 32>(k0, 0);
+        op.run(a, b, cT);
+    }
+    const uint k0 = 0;   // the shared loop tail below is dead for f16
+    if (false) {
+#elif FMT == 1
     device const char* wrow = W + (ulong)(r0 + lane) * K;
     device const half* srow = (device const half*)SB + (r0 + lane) * (K / 32);
     threadgroup half4* dst = (threadgroup half4*)(ws + lane * BK);

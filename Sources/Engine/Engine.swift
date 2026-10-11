@@ -20,10 +20,16 @@ public final class Engine {
     let wbuf: MTLBuffer
     let x, xn, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope: MTLBuffer
     let xnh, attnh, hh: MTLBuffer
+    let drafts, promptTail: MTLBuffer
+    var ngram: MTLBuffer
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
     let pRmsRows: MTLComputePipelineState
     var pGemmQKV, pGemmO, pGemmGU, pGemmDown: MTLComputePipelineState?
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
+    var pCommitSpec: MTLComputePipelineState?
+    var pSpec: [Int: [MTLComputePipelineState]] = [:]   // T -> [attn_in, o_proj, mlp_in, mlp_out, lm_head]
+    /// Rows per speculative pass (1 = off): the last token plus up to specT-1 n-gram drafts.
+    public var specT = 1
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
     var pG3: [Int: [MTLComputePipelineState]] = [:]  // tokens per tile (8, 16, 32) -> [qkv, o, gu, down]
     public var useGemm3 = ProcessInfo.processInfo.environment["ILL_NO_G3"] == nil
@@ -31,6 +37,7 @@ public final class Engine {
     /// Prompts of at least this many new tokens use the GEMM prefill path.
     public var gemmThreshold = 2
     var inflight: [MTLCommandBuffer] = []
+    var library: MTLLibrary?
     var q4a: Bool { format == .q4a }
     var residency: MTLResidencySet?
 
@@ -80,11 +87,14 @@ public final class Engine {
         let kvBytes = Dims.layers * Dims.kvHeads * maxContext * Dims.headDim * 2
         kc = buf(kvBytes)
         vc = buf(kvBytes)
-        state = buf(32)
+        state = buf(64)
         promptToks = buf(maxPass * 4)
         outToks = buf(maxSteps * 4)
-        pval = buf(Dims.vocab / 32 * 4)
-        pidx = buf(Dims.vocab / 32 * 4)
+        pval = buf(4 * Dims.vocab / 32 * 4)
+        pidx = buf(4 * Dims.vocab / 32 * 4)
+        drafts = buf(64)
+        promptTail = buf(64)
+        ngram = buf(16)
         logits = buf(Dims.vocab * 4)
         rope = buf(maxContext * 32 * 8)
         mark("activation buffers")
@@ -104,7 +114,7 @@ public final class Engine {
         let rd = MTLResidencySetDescriptor()
         rd.initialCapacity = 32
         if pinMemory, ProcessInfo.processInfo.environment["ILL_NO_RESIDENCY"] == nil, let rs = try? dev.makeResidencySet(descriptor: rd) {
-            for b in [wbuf, x, xn, xnh, attnh, hh, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope] {
+            for b in [wbuf, x, xn, xnh, attnh, hh, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope, drafts, promptTail] {
                 rs.addAllocation(b)
             }
             rs.commit()
@@ -120,6 +130,7 @@ public final class Engine {
         opts.languageVersion = .version4_0
         let tLib0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let lib = try dev.makeLibrary(source: shaderSource, options: opts)
+        library = lib
         let tLib1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         func pipe(_ name: String) throws -> MTLComputePipelineState {
             guard let f = lib.makeFunction(name: name) else { throw EngineError("missing kernel \(name)") }
@@ -143,6 +154,19 @@ public final class Engine {
         pRmsRowsH = try pipe("k_rmsnorm_rows_h")
         pF32ToH = try pipe("k_f32_to_h")
         pNoop = try pipe("k_noop")
+        if model.format == .q4 {
+            pCommitSpec = try pipe("k_commit_spec")
+            for t in 2...4 { pSpec[t] = try ["k_attn_in_", "k_o_proj_", "k_mlp_in_", "k_mlp_out_", "k_lm_head_"].map { try pipe($0 + "\(t)") } }
+        }
+        if ProcessInfo.processInfo.environment["ILL_PIPE_INFO"] != nil {
+            var all: [(String, MTLComputePipelineState)] = [("attn_in", pAttnIn), ("o_proj", pOProj), ("mlp_in", pMlpIn), ("mlp_out", pMlpOut), ("lm_head", pLMHead)]
+            for (t, ps) in pSpec.sorted(by: { $0.key < $1.key }) {
+                for (i, nm) in ["attn_in", "o_proj", "mlp_in", "mlp_out", "lm_head"].enumerated() { all.append(("\(nm) T=\(t)", ps[i])) }
+            }
+            for (nm, p) in all {
+                FileHandle.standardError.write("\(nm): maxThreads \(p.maxTotalThreadsPerThreadgroup) tgmem \(p.staticThreadgroupMemoryLength)\n".data(using: .utf8)!)
+            }
+        }
         if ProcessInfo.processInfo.environment["ILL_VERBOSE_INIT"] != nil {
             let tP = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             var prev = tI0
@@ -192,7 +216,7 @@ public final class Engine {
         e.setBuffer(vc, offset: kvOff, index: 7)
         e.setBuffer(rope, offset: 0, index: 8)
         e.setBuffer(state, offset: 0, index: 9)
-        if q4a { grid(e, 36, n, 64) } else { grid(e, 36, n) }
+        if q4a { grid(e, 36, n, 64) } else if format == .q4 { grid(e, 36, n, 128) } else { grid(e, 36, n) }
         } else if part == 1 {
         e.setComputePipelineState(pAttention)
         e.setBuffer(q, offset: 0, index: 0)
@@ -210,7 +234,7 @@ public final class Engine {
         e.setBuffer(attn, offset: 0, index: 2)
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        if q4a { grid(e, 28, n, 64) } else { grid(e, Dims.hidden / 32, n) }
+        if q4a { grid(e, 28, n, 64) } else if format == .q4 { grid(e, 56, n, 64) } else { grid(e, Dims.hidden / 32, n) }
         } else if part == 3 {
         e.setComputePipelineState(pMlpIn)
         w(e, TensorID.layer(l, TensorID.wgu), 0)
@@ -219,7 +243,7 @@ public final class Engine {
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(hbuf, offset: 0, index: 4)
         e.setBuffer(state, offset: 0, index: 5)
-        if q4a { grid(e, 304, n, 64) } else { grid(e, Dims.ff / 16, n) }
+        if q4a { grid(e, 304, n, 64) } else if format == .q4 { grid(e, 608, n, 64) } else { grid(e, Dims.ff / 16, n) }
         } else {
         e.setComputePipelineState(pMlpOut)
         w(e, TensorID.layer(l, TensorID.wd), 0)
@@ -227,7 +251,7 @@ public final class Engine {
         e.setBuffer(hbuf, offset: 0, index: 2)
         e.setBuffer(x, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        if q4a { grid(e, 56, n, 128) } else { grid(e, Dims.hidden / 32, n) }
+        if q4a { grid(e, 56, n, 128) } else if format == .q4 { grid(e, 56, n, 64) } else { grid(e, Dims.hidden / 32, n) }
         }
     }
 
@@ -297,7 +321,7 @@ public final class Engine {
         e.setBuffer(attn, offset: rowF, index: 2)
         e.setBuffer(x, offset: rowF, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        if q4a { grid(e, 28, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
+        if q4a { grid(e, 28, 1, 64) } else if format == .q4 { grid(e, 56, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
         e.setComputePipelineState(pMlpIn)
         w(e, TensorID.layer(l, TensorID.wgu), 0)
         w(e, TensorID.layer(l, TensorID.wguSB), 1)
@@ -305,14 +329,14 @@ public final class Engine {
         e.setBuffer(x, offset: rowF, index: 3)
         e.setBuffer(hbuf, offset: 0, index: 4)
         e.setBuffer(state, offset: 0, index: 5)
-        if q4a { grid(e, 304, 1, 64) } else { grid(e, Dims.ff / 16, 1) }
+        if q4a { grid(e, 304, 1, 64) } else if format == .q4 { grid(e, 608, 1, 64) } else { grid(e, Dims.ff / 16, 1) }
         e.setComputePipelineState(pMlpOut)
         w(e, TensorID.layer(l, TensorID.wd), 0)
         w(e, TensorID.layer(l, TensorID.wdSB), 1)
         e.setBuffer(hbuf, offset: 0, index: 2)
         e.setBuffer(x, offset: rowF, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        if q4a { grid(e, 56, 1, 128) } else { grid(e, Dims.hidden / 32, 1) }
+        if q4a { grid(e, 56, 1, 128) } else if format == .q4 { grid(e, 56, 1, 64) } else { grid(e, Dims.hidden / 32, 1) }
     }
 
     private func encodePrefillLayer2(_ e: MTLComputeCommandEncoder, _ l: Int, n: Int) {
@@ -385,7 +409,7 @@ public final class Engine {
         e.setBuffer(logits, offset: 0, index: 7)
         var wl: Int32 = writeLogits ? 1 : 0
         e.setBytes(&wl, length: 4, index: 8)
-        grid(e, Dims.vocab / 32, 1, q4a ? 64 : 256)
+        grid(e, Dims.vocab / 32, 1, q4a ? 64 : (format == .q4 ? 128 : 256))
     }
 
     private func encodeCommit(_ e: MTLComputeCommandEncoder) {
@@ -400,6 +424,62 @@ public final class Engine {
         grid(e, 1, 1, 1024)
     }
 
+    private func encodeCommitSpec(_ e: MTLComputeCommandEncoder) {
+        e.setComputePipelineState(pCommitSpec!)
+        e.setBuffer(pval, offset: 0, index: 0)
+        e.setBuffer(pidx, offset: 0, index: 1)
+        e.setBuffer(state, offset: 0, index: 2)
+        e.setBuffer(outToks, offset: 0, index: 3)
+        w(e, TensorID.embed, 4)
+        w(e, TensorID.embedSB, 5)
+        e.setBuffer(x, offset: 0, index: 6)
+        e.setBuffer(drafts, offset: 0, index: 7)
+        e.setBuffer(ngram, offset: 0, index: 8)
+        e.setBuffer(promptTail, offset: 0, index: 9)
+        grid(e, 1, 1, 1024)
+    }
+
+    /// One speculative pass over T rows (last token + drafts): every weight read once for all rows.
+    private func encodeSpecPass(_ e: MTLComputeCommandEncoder, T: Int) {
+        let p = pSpec[T]!
+        for l in 0..<Dims.layers {
+            let kvOff = l * Dims.kvHeads * maxContext * Dims.headDim * 2
+            let L = { TensorID.layer(l, $0) }
+            e.setComputePipelineState(p[0])
+            w(e, L(TensorID.wqkv), 0); w(e, L(TensorID.wqkvSB), 1); w(e, L(TensorID.bqkv), 2); w(e, L(TensorID.attnNorm), 3)
+            e.setBuffer(x, offset: 0, index: 4); e.setBuffer(q, offset: 0, index: 5)
+            e.setBuffer(kc, offset: kvOff, index: 6); e.setBuffer(vc, offset: kvOff, index: 7)
+            e.setBuffer(rope, offset: 0, index: 8); e.setBuffer(state, offset: 0, index: 9)
+            grid(e, 36, 1, 128)
+            e.setComputePipelineState(pAttention)
+            e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
+            e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
+            var toff: Int32 = 0
+            e.setBytes(&toff, length: 4, index: 5)
+            grid(e, Dims.heads, T)
+            e.setComputePipelineState(p[1])
+            w(e, L(TensorID.wo), 0); w(e, L(TensorID.woSB), 1)
+            e.setBuffer(attn, offset: 0, index: 2); e.setBuffer(x, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
+            grid(e, 56, 1, 64)
+            e.setComputePipelineState(p[2])
+            w(e, L(TensorID.wgu), 0); w(e, L(TensorID.wguSB), 1); w(e, L(TensorID.mlpNorm), 2)
+            e.setBuffer(x, offset: 0, index: 3); e.setBuffer(hbuf, offset: 0, index: 4); e.setBuffer(state, offset: 0, index: 5)
+            grid(e, 608, 1, 64)
+            e.setComputePipelineState(p[3])
+            w(e, L(TensorID.wd), 0); w(e, L(TensorID.wdSB), 1)
+            e.setBuffer(hbuf, offset: 0, index: 2); e.setBuffer(x, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4)
+            grid(e, 56, 1, 64)
+        }
+        e.setComputePipelineState(p[4])
+        w(e, TensorID.embed, 0); w(e, TensorID.embedSB, 1); w(e, TensorID.finalNorm, 2)
+        e.setBuffer(x, offset: 0, index: 3); e.setBuffer(pval, offset: 0, index: 4); e.setBuffer(pidx, offset: 0, index: 5)
+        e.setBuffer(state, offset: 0, index: 6); e.setBuffer(logits, offset: 0, index: 7)
+        var wl: Int32 = 0
+        e.setBytes(&wl, length: 4, index: 8)
+        grid(e, Dims.vocab / 32, 1, 128)
+        encodeCommitSpec(e)
+    }
+
     private func encodePrefill(_ e: MTLComputeCommandEncoder, n: Int, writeLogits: Bool) {
         e.setComputePipelineState(pEmbedPrompt)
         w(e, TensorID.embed, 0)
@@ -412,8 +492,10 @@ public final class Engine {
             if n >= gemmThreshold { if useGemm2 { encodePrefillLayer2(e, l, n: n) } else { encodePrefillLayer(e, l, n: n) } } else { encodeLayer(e, l, n: n) }
         }
         encodeLMHead(e, writeLogits: writeLogits)
-        encodeCommit(e)
+        if specActive { encodeCommitSpec(e) } else { encodeCommit(e) }
     }
+
+    private var specActive = false
 
     private func encodeDecodeStep(_ e: MTLComputeCommandEncoder, writeLogits: Bool) {
         for l in 0..<Dims.layers { encodeLayer(e, l, n: 1) }
@@ -474,6 +556,51 @@ public final class Engine {
         }
         r.append(("decode step (1 token)", gpuTime(n: 1, pos: pos + n) { e in self.encodeDecodeStep(e, writeLogits: false) }))
         r.append(("decode 16 steps / 16", gpuTime(n: 1, pos: pos + n, iters: 5) { e in for _ in 0..<16 { self.encodeDecodeStep(e, writeLogits: false) } } / 16))
+        for T in [2, 3, 4] where pSpec[T] != nil {
+            let st = state.contents().assumingMemoryBound(to: Int32.self)
+            _ = st
+            r.append(("  24x attn_in T=\(T)", gpuTime(n: T, pos: pos + n) { e in
+                let p = self.pSpec[T]!
+                for l in 0..<Dims.layers {
+                    let L = { TensorID.layer(l, $0) }
+                    let kvOff = l * Dims.kvHeads * self.maxContext * Dims.headDim * 2
+                    e.setComputePipelineState(p[0])
+                    self.w(e, L(TensorID.wqkv), 0); self.w(e, L(TensorID.wqkvSB), 1); self.w(e, L(TensorID.bqkv), 2); self.w(e, L(TensorID.attnNorm), 3)
+                    e.setBuffer(self.x, offset: 0, index: 4); e.setBuffer(self.q, offset: 0, index: 5)
+                    e.setBuffer(self.kc, offset: kvOff, index: 6); e.setBuffer(self.vc, offset: kvOff, index: 7)
+                    e.setBuffer(self.rope, offset: 0, index: 8); e.setBuffer(self.state, offset: 0, index: 9)
+                    self.grid(e, 36, 1, 128)
+                }
+            }))
+            r.append(("  24x o_proj T=\(T)", gpuTime(n: T, pos: pos + n) { e in
+                for l in 0..<Dims.layers {
+                    e.setComputePipelineState(self.pSpec[T]![1])
+                    self.w(e, TensorID.layer(l, TensorID.wo), 0); self.w(e, TensorID.layer(l, TensorID.woSB), 1)
+                    e.setBuffer(self.attn, offset: 0, index: 2); e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.state, offset: 0, index: 4)
+                    self.grid(e, 56, 1, 64)
+                } }))
+            r.append(("  24x mlp_in T=\(T)", gpuTime(n: T, pos: pos + n) { e in
+                for l in 0..<Dims.layers {
+                    e.setComputePipelineState(self.pSpec[T]![2])
+                    self.w(e, TensorID.layer(l, TensorID.wgu), 0); self.w(e, TensorID.layer(l, TensorID.wguSB), 1); self.w(e, TensorID.layer(l, TensorID.mlpNorm), 2)
+                    e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.hbuf, offset: 0, index: 4); e.setBuffer(self.state, offset: 0, index: 5)
+                    self.grid(e, 608, 1, 64)
+                } }))
+            r.append(("  24x mlp_out T=\(T)", gpuTime(n: T, pos: pos + n) { e in
+                for l in 0..<Dims.layers {
+                    e.setComputePipelineState(self.pSpec[T]![3])
+                    self.w(e, TensorID.layer(l, TensorID.wd), 0); self.w(e, TensorID.layer(l, TensorID.wdSB), 1)
+                    e.setBuffer(self.hbuf, offset: 0, index: 2); e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.state, offset: 0, index: 4)
+                    self.grid(e, 56, 1, 64)
+                } }))
+            r.append(("  lm_head T=\(T)", gpuTime(n: T, pos: pos + n) { e in
+                e.setComputePipelineState(self.pSpec[T]![4])
+                self.w(e, TensorID.embed, 0); self.w(e, TensorID.embedSB, 1); self.w(e, TensorID.finalNorm, 2)
+                e.setBuffer(self.x, offset: 0, index: 3); e.setBuffer(self.pval, offset: 0, index: 4); e.setBuffer(self.pidx, offset: 0, index: 5)
+                e.setBuffer(self.state, offset: 0, index: 6); e.setBuffer(self.logits, offset: 0, index: 7)
+                var wl: Int32 = 0; e.setBytes(&wl, length: 4, index: 8)
+                self.grid(e, Dims.vocab / 32, 1, 128) }))
+        }
         r.append(("  24x attn_in (decode)", gpuTime(n: 1, pos: pos + n) { e in for l in 0..<Dims.layers { self.encodeLayerPart(e, l, part: 0) } }))
         r.append(("  24x attention (decode)", gpuTime(n: 1, pos: pos + n) { e in for l in 0..<Dims.layers { self.encodeLayerPart(e, l, part: 1) } }))
         r.append(("  24x o_proj (decode)", gpuTime(n: 1, pos: pos + n) { e in for l in 0..<Dims.layers { self.encodeLayerPart(e, l, part: 2) } }))
@@ -493,9 +620,21 @@ public final class Engine {
         public var tEnd: UInt64 = 0
         public var stopToken: Int32 = -1
         public var tCommit: UInt64 = 0
+        public var passes = 0
+        public var accepted = 0
     }
 
     public private(set) var lastTiming = Timing()
+
+    /// Loads an n-gram draft table (NGramTable layout) for speculative decoding.
+    public func loadDraftTable(path: String) throws {
+        guard let d = FileManager.default.contents(atPath: path), d.count == NGramTable.slots * 16 else {
+            throw EngineError("bad draft table \(path)")
+        }
+        ngram = d.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: d.count, options: .storageModeShared)! }
+        residency?.addAllocation(ngram)
+        residency?.commit()
+    }
 
     /// Submits a trivial dispatch so the GPU is awake (and clocked up) by the time real work arrives.
     public func wake() {
@@ -600,6 +739,10 @@ public final class Engine {
         let s = state.contents().assumingMemoryBound(to: Int32.self)
         s[0] = Int32(common); s[1] = Int32(n); s[2] = 0; s[3] = 0
         s[4] = Int32(maxContext); s[5] = Int32(maxNew); s[6] = eos.0; s[7] = eos.1
+        specActive = specT > 1 && pSpec[specT] != nil && ngram.length == NGramTable.slots * 16
+        s[8] = 1                                   // the prefill's lm_head produces one row
+        s[9] = Int32(specActive ? specT : 1)
+        s[10] = 0; s[11] = 0                       // passes, accepted drafts (diagnostics)
 
         // Prefill gets its own command buffer, committed at once. Decode steps go in small command
         // buffers kept `depth` steps ahead of the CPU: a token written by the GPU only becomes
@@ -608,7 +751,7 @@ public final class Engine {
         var (cb, e) = newEncoder()
         encodePrefill(e, n: n, writeLogits: logitsOut != nil)
         var encoded = 1
-        while encoded < min(maxNew, 1 + firstChunk) { encodeDecodeStep(e, writeLogits: false); encoded += 1 }
+        while !specActive && encoded < min(maxNew, 1 + firstChunk) { encodeDecodeStep(e, writeLogits: false); encoded += 1 }
         e.endEncoding()
         cb.commit()
         timing.tCommit = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
@@ -622,7 +765,11 @@ public final class Engine {
             if encoded < maxNew && encoded - got <= depth {
                 (cb, e) = newEncoder()
                 let end = min(maxNew, encoded + chunk)
-                while encoded < end { encodeDecodeStep(e, writeLogits: false); encoded += 1 }
+                // a speculative pass yields 1...specT tokens; a plain step exactly one
+                while encoded < end {
+                    if specActive { encodeSpecPass(e, T: specT) } else { encodeDecodeStep(e, writeLogits: false) }
+                    encoded += 1
+                }
                 e.endEncoding()
                 cb.commit()
                 inflight.append(cb)
@@ -640,6 +787,8 @@ public final class Engine {
             if let cbk = onToken, !cbk(t) { stopped = true }
         }
         timing.tEnd = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        timing.passes = Int(ill_volatile_load(s + 10))
+        timing.accepted = Int(ill_volatile_load(s + 11))
         lastTiming = timing
         // KV is valid for the prompt and every generated token except the last one.
         cachedTokens = tokens + out.dropLast()

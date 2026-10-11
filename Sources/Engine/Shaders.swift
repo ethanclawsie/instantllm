@@ -29,7 +29,45 @@ struct State {
     int maxsteps;
     int eos0;
     int eos1;
+    int nver;      // rows whose argmax the next commit reads (1 after prefill, T after a verify pass)
+    int tspec;     // rows per speculative pass (1 = no speculation)
+    int pad0;
+    int pad1;
 };
+
+// n-gram draft table: open addressing, NG_SLOTS entries of {key, next token, count, total}.
+#define NG_SLOTS (1 << 20)
+#define NG_MAXN 6
+struct NGEntry {
+    ulong key;     // 0 = empty
+    int next;
+    ushort count;
+    ushort total;
+};
+
+inline ulong ng_key(thread const int* ctx, int n) {   // ctx[0..n-1] = the last n tokens, oldest first
+    ulong h = 0xcbf29ce484222325ul ^ ulong(n);
+    for (int i = 0; i < n; i++) { h ^= ulong(uint(ctx[i])) + 0x9e3779b97f4a7c15ul; h *= 0x100000001b3ul; h ^= h >> 29; }
+    return h | 1ul;
+}
+
+// Most frequent continuation of the longest known context (orders NG_MAXN..1); -1 if none is confident.
+inline int ng_next(device const NGEntry* tab, thread const int* hist, int len, int minc) {
+    for (int n = min(NG_MAXN, len); n >= 1; n--) {
+        const ulong k = ng_key(hist + len - n, n);
+        uint slot = uint(k >> 12) & (NG_SLOTS - 1);
+        for (int p = 0; p < 16; p++) {
+            const NGEntry e = tab[slot];
+            if (e.key == 0) break;
+            if (e.key == k) {
+                if (int(e.count) >= minc && 2 * int(e.count) >= int(e.total)) return e.next;
+                return -1;   // known context, no confident continuation: stop drafting
+            }
+            slot = (slot + 1) & (NG_SLOTS - 1);
+        }
+    }
+    return -1;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Weight access. W points at the first row of the matrix; SB at its scales (q4 only).
@@ -213,7 +251,109 @@ kernel void k_commit(device const float* pval [[buffer(0)]],
     for (uint i = tid; i < H; i += 1024) x[i] = embed_at(E, ESB, tok, i);
 }
 
-#if FMT != 3
+// Speculative commit: one threadgroup of 1024 threads. Rows 0..nver-1 of the pass that just ran were
+// [last token, draft 0, ..., draft nver-2]; their argmaxes g_t come from the lm_head partials
+// [t][LMH_TGS]. Accepts the longest prefix with draft t == g_t, commits g_0..g_m (stopping at EOS),
+// drafts tspec-1 new tokens from the n-gram table and embeds [g_m, drafts...] for the next pass.
+kernel void k_commit_spec(device const float* pval [[buffer(0)]],
+                          device const int* pidx [[buffer(1)]],
+                          device State* st [[buffer(2)]],
+                          device int* out_tokens [[buffer(3)]],
+                          device const wtype* E [[buffer(4)]],
+                          device const half2* ESB [[buffer(5)]],
+                          device float* x [[buffer(6)]],
+                          device int* drafts [[buffer(7)]],
+                          device const NGEntry* tab [[buffer(8)]],
+                          device const int* prompt_tail [[buffer(9)]],
+                          uint tid [[thread_index_in_threadgroup]],
+                          uint lane [[thread_index_in_simdgroup]],
+                          uint sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    threadgroup float rv[32];
+    threadgroup int ri[32];
+    threadgroup int g[8];
+    threadgroup int next_rows[8];
+    threadgroup int nrows_s;
+    const int nv = st->nver;
+    for (int t = 0; t < nv; t++) {
+        float best = -INFINITY;
+        int bi = 0x7fffffff;
+        for (int i = tid; i < LMH_TGS; i += 1024) {
+            const float v = pval[t * LMH_TGS + i];
+            const int id = pidx[t * LMH_TGS + i];
+            if (v > best || (v == best && id < bi)) { best = v; bi = id; }
+        }
+        for (ushort off = 16; off > 0; off >>= 1) {
+            const float ov = simd_shuffle_down(best, off);
+            const int oi = simd_shuffle_down(bi, off);
+            if (ov > best || (ov == best && oi < bi)) { best = ov; bi = oi; }
+        }
+        if (lane == 0) { rv[sg] = best; ri[sg] = bi; }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (sg == 0) {
+            best = rv[lane]; bi = ri[lane];
+            for (ushort off = 16; off > 0; off >>= 1) {
+                const float ov = simd_shuffle_down(best, off);
+                const int oi = simd_shuffle_down(bi, off);
+                if (ov > best || (ov == best && oi < bi)) { best = ov; bi = oi; }
+            }
+            if (lane == 0) g[t] = bi;
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (tid == 0) {
+        st->pad0 += 1;                       // passes committed (diagnostics)
+        int m = 0;
+        while (m < nv - 1 && drafts[m] == g[m]) m++;
+        if (m > 0) st->pad1 += m;            // accepted drafts (diagnostics)
+        bool stop = false;
+        int last = g[0];
+        for (int i = 0; i <= m && !stop; i++) {
+            const int tok = g[i];
+            out_tokens[st->step] = tok;
+            st->step += 1;
+            last = tok;
+            if (tok == st->eos0 || tok == st->eos1 || st->step >= st->maxsteps) stop = true;
+        }
+        // the pass covered positions pos .. pos+nver-1; rows 0..m are now real context
+        st->pos += (nv == 1 ? st->n : m + 1);
+        if (stop) {
+            st->done = 1;
+            nrows_s = 0;
+        } else {
+            // history for drafting: last committed tokens (generated, then prompt tail before them)
+            int hist[NG_MAXN + 8];
+            const int have = st->step;
+            int len = 0;
+            for (int i = NG_MAXN; i >= 1; i--) {
+                const int j = have - i;
+                hist[len++] = j >= 0 ? out_tokens[j] : -1;   // -1 marks the start of the output
+            }
+            const int T = st->tspec;
+            int nd = 0;
+            next_rows[0] = last;
+            for (; nd < T - 1; nd++) {
+                const int d = ng_next(tab, hist, len, 1);
+                if (d < 0) break;
+                drafts[nd] = d;
+                next_rows[nd + 1] = d;
+                hist[len++] = d;
+            }
+            for (int i = nd; i < T - 1; i++) { drafts[i] = -2; next_rows[i + 1] = 0; }
+            st->nver = T;
+            st->n = T;
+            nrows_s = T;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    const int nr = nrows_s;
+    for (int r = 0; r < nr; r++) {
+        const int tok = next_rows[r];
+        for (uint i = tid; i < H; i += 1024) x[r * H + i] = embed_at(E, ESB, tok, i);
+    }
+}
+
+#if FMT == 0
 // ---------------------------------------------------------------------------------------------
 // RMSNorm + QKV projection + bias + RoPE + KV-cache write. Grid (36, n), 256 threads.
 // Rows are stored in blocks of 32: block b = 2*head + half holds dims [16*half, 16*half+16) and
@@ -326,7 +466,7 @@ kernel void k_attention(device const float* q [[buffer(0)]],
     if (tid < HD) out[t * H + h * HD + tid] = (part[tid] + part[tid + 64] + part[tid + 128] + part[tid + 192]) / sum;
 }
 
-#if FMT != 3
+#if FMT == 0
 // Output projection + residual. Grid (28, n), 256 threads, 32 rows per threadgroup.
 kernel void k_o_proj(device const wtype* W [[buffer(0)]],
                      device const half2* SB [[buffer(1)]],
@@ -439,6 +579,293 @@ kernel void k_lm_head(device const wtype* E [[buffer(0)]],
     }
 }
 
+#endif
+
+
+#if FMT == 2
+// ---------------------------------------------------------------------------------------------
+// q4 (group-64 affine, row-major) decode kernels, templated on T = tokens per pass (T = 1 is plain
+// decode, T > 1 verifies speculative drafts; the per-token arithmetic is identical, so speculation
+// reproduces plain greedy decoding bit for bit). Every simdgroup normalizes its input chunk itself
+// (one simd_sum) and computes 8 rows; for K = 896 lane l < 28 owns columns [32l, 32l + 32). Inputs
+// are held as fp16 in registers (with fp32 inputs, T = 2 costs 1.5x a step; with fp16, 1.1x). A
+// nibble n unpacks to fp16 (1 + n/16) with bit operations; sum(n x) = 16 (sum((1 + n/16) x) - X).
+// After the butterfly reduction row r of the simdgroup lives in lanes 4r..4r+3.
+
+static inline float reduce8(thread float* v, ushort lane) {
+    float t4[4], t2[2];
+    bool b = (lane & 16) != 0;
+    for (int i = 0; i < 4; i++) { const float keep = b ? v[4 + i] : v[i], send = b ? v[i] : v[4 + i]; t4[i] = keep + simd_shuffle_xor(send, 16); }
+    b = (lane & 8) != 0;
+    for (int i = 0; i < 2; i++) { const float keep = b ? t4[2 + i] : t4[i], send = b ? t4[i] : t4[2 + i]; t2[i] = keep + simd_shuffle_xor(send, 8); }
+    b = (lane & 4) != 0;
+    const float keep = b ? t2[1] : t2[0], send = b ? t2[0] : t2[1];
+    float t1 = keep + simd_shuffle_xor(send, 4);
+    t1 += simd_shuffle_xor(t1, 2);
+    return t1 + simd_shuffle_xor(t1, 1);
+}
+
+// 32 nibbles unpacked once, T dot products with the fp16 inputs (in-order fp32 accumulation).
+template<int T>
+static inline void q4_dot32(uint4 w, thread const half (&xh)[T][32], thread float* d) {
+    for (int t = 0; t < T; t++) d[t] = 0.f;
+    for (int u = 0; u < 4; ++u) {
+        const uint v = w[u];
+        const half2 p04 = as_type<half2>(((v << 6) & 0x03C003C0u) | 0x3C003C00u);
+        const half2 p15 = as_type<half2>(((v << 2) & 0x03C003C0u) | 0x3C003C00u);
+        const half2 p26 = as_type<half2>(((v >> 2) & 0x03C003C0u) | 0x3C003C00u);
+        const half2 p37 = as_type<half2>(((v >> 6) & 0x03C003C0u) | 0x3C003C00u);
+        const float f[8] = {float(p04.x), float(p15.x), float(p26.x), float(p37.x), float(p04.y), float(p15.y), float(p26.y), float(p37.y)};
+        for (int t = 0; t < T; t++) {
+            thread const half* xu = xh[t] + u * 8;
+            float a = d[t];
+            for (int k = 0; k < 8; k++) a = fma(f[k], float(xu[k]), a);
+            d[t] = a;
+        }
+    }
+}
+
+// Lane's 32-column chunk of RMSNorm(x) * w as fp16; X = sum of the rounded values. Lanes >= 28: zeros.
+static inline void q4_chunk_norm(device const float* x, device const float* w, ushort lane, thread half* xh, thread float& X) {
+    float xv[32];
+    float ss = 0.f;
+    if (lane < 28) {
+        device const float4* xs = (device const float4*)(x + lane * 32);
+        for (int i = 0; i < 8; i++) { const float4 t = xs[i]; xv[4*i] = t.x; xv[4*i+1] = t.y; xv[4*i+2] = t.z; xv[4*i+3] = t.w; ss += dot(t, t); }
+    }
+    ss = simd_sum(ss);
+    const float scale = rsqrt(ss / float(H) + EPS);
+    X = 0.f;
+    if (lane < 28) {
+        device const float4* ws = (device const float4*)(w + lane * 32);
+        for (int i = 0; i < 8; i++) {
+            const float4 t = float4(xv[4*i], xv[4*i+1], xv[4*i+2], xv[4*i+3]) * scale * ws[i];
+            const half4 h = half4(t);
+            xh[4*i] = h.x; xh[4*i+1] = h.y; xh[4*i+2] = h.z; xh[4*i+3] = h.w;
+            X += float(h.x) + float(h.y) + float(h.z) + float(h.w);
+        }
+    } else {
+        for (int i = 0; i < 32; i++) xh[i] = 0.h;
+    }
+}
+
+static inline void q4_chunk_plain(device const float* x, ushort lane, thread half* xh, thread float& X) {
+    X = 0.f;
+    if (lane < 28) {
+        device const float4* xs = (device const float4*)(x + lane * 32);
+        for (int i = 0; i < 8; i++) {
+            const half4 h = half4(xs[i]);
+            xh[4*i] = h.x; xh[4*i+1] = h.y; xh[4*i+2] = h.z; xh[4*i+3] = h.w;
+            X += float(h.x) + float(h.y) + float(h.z) + float(h.w);
+        }
+    } else {
+        for (int i = 0; i < 32; i++) xh[i] = 0.h;
+    }
+}
+
+// 8 rows (from r0) of a K = 896 matrix for T tokens: lane-local partials v[t][r] before the reduction.
+template<int T>
+static inline void q4_rows8(device const uchar* W, device const half2* SB, uint r0, thread const half (&xh)[T][32],
+                            thread const float* X, ushort lane, thread float (&v)[T][8]) {
+    if (lane >= 28) { for (int t = 0; t < T; t++) for (int r = 0; r < 8; r++) v[t][r] = 0.f; return; }
+    for (int rb = 0; rb < 8; rb += 4) {
+        uint4 w[4];
+        float2 sb[4];
+        for (int b = 0; b < 4; b++) {
+            w[b] = *((device const uint4*)(W + (ulong)(r0 + rb + b) * (H / 2) + lane * 16));
+            sb[b] = float2(SB[(r0 + rb + b) * (H / 64) + (lane >> 1)]);
+        }
+        for (int b = 0; b < 4; b++) {
+            float d[T];
+            q4_dot32<T>(w[b], xh, d);
+            for (int t = 0; t < T; t++) v[t][rb + b] = sb[b].x * (16.f * (d[t] - X[t])) + sb[b].y * X[t];
+        }
+    }
+}
+
+// RMSNorm + QKV + bias + RoPE + KV write (32-row rotary blocks: rows i, i+16 = dims d, d+32).
+// Grid (36), 128 threads: 4 simdgroups x 8 rows. Rows t = 0..T-1 of x at positions pos+t.
+template<int T>
+kernel void k_attn_in_T(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
+                        device const float* bias [[buffer(2)]], device const float* wnorm [[buffer(3)]],
+                        device const float* x [[buffer(4)]], device float* q [[buffer(5)]],
+                        device half* kc [[buffer(6)]], device half* vc [[buffer(7)]],
+                        device const float2* rope [[buffer(8)]], device const State* st [[buffer(9)]],
+                        uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]],
+                        ushort lane [[thread_index_in_simdgroup]], ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    threadgroup float outv[T][32];
+    half xh[T][32];
+    float X[T], v[T][8];
+    for (int t = 0; t < T; t++) q4_chunk_norm(x + t * H, wnorm, lane, xh[t], X[t]);
+    const uint r0 = tgp.x * 32 + sg * 8;
+    q4_rows8<T>(W, SB, r0, xh, X, lane, v);
+    for (int t = 0; t < T; t++) {
+        const float y = reduce8(v[t], lane);
+        if ((lane & 3) == 0) outv[t][sg * 8 + (lane >> 2)] = y + bias[r0 + (lane >> 2)];
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (tid < 16 * T) {
+        const int t = tid / 16, i = tid % 16;
+        const int pos = st->pos + t;
+        const int head = tgp.x >> 1;
+        const int d = (tgp.x & 1) * 16 + i;
+        float a = outv[t][i], b = outv[t][i + 16];
+        if (head < NH + NKV) {
+            const float2 cs = rope[pos * 32 + d];
+            const float a2 = a * cs.x - b * cs.y;
+            const float b2 = b * cs.x + a * cs.y;
+            a = a2; b = b2;
+        }
+        if (head < NH) {
+            q[t * H + head * HD + d] = a;
+            q[t * H + head * HD + d + 32] = b;
+        } else if (head < NH + NKV) {
+            device half* k = kc + ((ulong)(head - NH) * st->maxctx + pos) * HD;
+            k[d] = half(a); k[d + 32] = half(b);
+        } else {
+            device half* vv = vc + ((ulong)(head - NH - NKV) * st->maxctx + pos) * HD;
+            vv[d] = half(a); vv[d + 32] = half(b);
+        }
+    }
+}
+
+// Output projection + residual. Grid (56), 64 threads: 2 simdgroups x 8 rows.
+template<int T>
+kernel void k_o_proj_T(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
+                       device const float* a [[buffer(2)]], device float* x [[buffer(3)]],
+                       device const State* st [[buffer(4)]],
+                       uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                       ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    half xh[T][32];
+    float X[T], v[T][8];
+    for (int t = 0; t < T; t++) q4_chunk_plain(a + t * H, lane, xh[t], X[t]);
+    const uint r0 = tgp.x * 16 + sg * 8;
+    q4_rows8<T>(W, SB, r0, xh, X, lane, v);
+    for (int t = 0; t < T; t++) {
+        const float y = reduce8(v[t], lane);
+        if ((lane & 3) == 0) x[t * H + r0 + (lane >> 2)] += y;
+    }
+}
+
+// RMSNorm + gate/up + SiLU*up; stored rows in groups of 4 = gate[2q], gate[2q+1], up[2q], up[2q+1].
+// Grid (608), 64 threads: 2 simdgroups x 8 rows (= 4 hidden units per simdgroup).
+template<int T>
+kernel void k_mlp_in_T(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
+                       device const float* wnorm [[buffer(2)]], device const float* x [[buffer(3)]],
+                       device float* hbuf [[buffer(4)]], device const State* st [[buffer(5)]],
+                       uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                       ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    half xh[T][32];
+    float X[T], v[T][8];
+    for (int t = 0; t < T; t++) q4_chunk_norm(x + t * H, wnorm, lane, xh[t], X[t]);
+    const uint r0 = tgp.x * 16 + sg * 8;
+    q4_rows8<T>(W, SB, r0, xh, X, lane, v);
+    const int row = lane >> 2;
+    for (int t = 0; t < T; t++) {
+        const float y = reduce8(v[t], lane);
+        const float u = simd_shuffle_down(y, 8);
+        if ((lane & 3) == 0 && (row & 2) == 0) {
+            const int unit = 2 * (int(r0 / 4) + (row >> 2)) + (row & 1);
+            hbuf[t * FF + unit] = y / (1.f + exp(-y)) * u;
+        }
+    }
+}
+
+// Down projection + residual (K = 4864): lanes stride 152 chunks of 32 columns; input chunks are read
+// from device memory (L2) per step and rounded to fp16. Grid (56), 64 threads: 2 simdgroups x 8 rows.
+template<int T>
+kernel void k_mlp_out_T(device const uchar* W [[buffer(0)]], device const half2* SB [[buffer(1)]],
+                        device const float* hbuf [[buffer(2)]], device float* x [[buffer(3)]],
+                        device const State* st [[buffer(4)]],
+                        uint2 tgp [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                        ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    const uint r0 = tgp.x * 16 + sg * 8;
+    float acc[T][8];
+    for (int t = 0; t < T; t++) for (int r = 0; r < 8; r++) acc[t][r] = 0.f;
+    for (int c = lane; c < FF / 32; c += 32) {
+        half xh[T][32];
+        float X[T];
+        for (int t = 0; t < T; t++) {
+            X[t] = 0.f;
+            device const float4* xs = (device const float4*)(hbuf + t * FF + c * 32);
+            for (int i = 0; i < 8; i++) {
+                const half4 h = half4(xs[i]);
+                xh[t][4*i] = h.x; xh[t][4*i+1] = h.y; xh[t][4*i+2] = h.z; xh[t][4*i+3] = h.w;
+                X[t] += float(h.x) + float(h.y) + float(h.z) + float(h.w);
+            }
+        }
+        for (int rb = 0; rb < 8; rb += 4) {
+            uint4 w[4];
+            float2 sb[4];
+            for (int b = 0; b < 4; b++) {
+                w[b] = *((device const uint4*)(W + (ulong)(r0 + rb + b) * (FF / 2) + c * 16));
+                sb[b] = float2(SB[(r0 + rb + b) * (FF / 64) + (c >> 1)]);
+            }
+            for (int b = 0; b < 4; b++) {
+                float d[T];
+                q4_dot32<T>(w[b], xh, d);
+                for (int t = 0; t < T; t++) acc[t][rb + b] += sb[b].x * (16.f * (d[t] - X[t])) + sb[b].y * X[t];
+            }
+        }
+    }
+    for (int t = 0; t < T; t++) {
+        const float y = reduce8(acc[t], lane);
+        if ((lane & 3) == 0) x[t * H + r0 + (lane >> 2)] += y;
+    }
+}
+
+// Final RMSNorm + tied lm_head + per-threadgroup argmax for rows (st->n - T) .. (st->n - 1) of x;
+// partials laid out [t][LMH_TGS]. Grid (4748), 128 threads: 4 simdgroups x 8 vocabulary rows.
+template<int T>
+kernel void k_lm_head_T(device const uchar* E [[buffer(0)]], device const half2* ESB [[buffer(1)]],
+                        device const float* wnorm [[buffer(2)]], device const float* x [[buffer(3)]],
+                        device float* pval [[buffer(4)]], device int* pidx [[buffer(5)]],
+                        device const State* st [[buffer(6)]], device float* logits [[buffer(7)]],
+                        constant int& write_logits [[buffer(8)]],
+                        uint tg [[threadgroup_position_in_grid]], ushort lane [[thread_index_in_simdgroup]],
+                        ushort sg [[simdgroup_index_in_threadgroup]]) {
+    if (st->done) return;
+    threadgroup float bv[T][4];
+    threadgroup int bix[T][4];
+    half xh[T][32];
+    float X[T], v[T][8];
+    device const float* xr = x + (st->n - T) * H;
+    for (int t = 0; t < T; t++) q4_chunk_norm(xr + t * H, wnorm, lane, xh[t], X[t]);
+    const uint r0 = tg * 32 + sg * 8;
+    q4_rows8<T>(E, ESB, r0, xh, X, lane, v);
+    for (int t = 0; t < T; t++) {
+        const float y = reduce8(v[t], lane);
+        const int row = int(r0) + (lane >> 2);
+        if (T == 1 && write_logits && (lane & 3) == 0) logits[row] = y;
+        const float m = simd_max(y);
+        const int idx = simd_min(y == m ? row : 0x7fffffff);
+        if (lane == 0) { bv[t][sg] = m; bix[t][sg] = idx; }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (sg == 0 && lane < T) {
+        const int t = lane;
+        float best = bv[t][0];
+        int bi = bix[t][0];
+        for (int s2 = 1; s2 < 4; ++s2) if (bv[t][s2] > best) { best = bv[t][s2]; bi = bix[t][s2]; }
+        pval[t * LMH_TGS + tg] = best;
+        pidx[t * LMH_TGS + tg] = bi;
+    }
+}
+
+#define INST_T(T, SUF) \
+template [[host_name("k_attn_in" SUF)]] kernel void k_attn_in_T<T>(device const uchar*, device const half2*, device const float*, device const float*, device const float*, device float*, device half*, device half*, device const float2*, device const State*, uint2, uint, ushort, ushort); \
+template [[host_name("k_o_proj" SUF)]] kernel void k_o_proj_T<T>(device const uchar*, device const half2*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
+template [[host_name("k_mlp_in" SUF)]] kernel void k_mlp_in_T<T>(device const uchar*, device const half2*, device const float*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
+template [[host_name("k_mlp_out" SUF)]] kernel void k_mlp_out_T<T>(device const uchar*, device const half2*, device const float*, device float*, device const State*, uint2, ushort, ushort); \
+template [[host_name("k_lm_head" SUF)]] kernel void k_lm_head_T<T>(device const uchar*, device const half2*, device const float*, device const float*, device float*, device int*, device const State*, device float*, constant int&, uint, ushort, ushort);
+INST_T(1, "")
+INST_T(2, "_2")
+INST_T(3, "_3")
+INST_T(4, "_4")
 #endif
 
 #if FMT == 3

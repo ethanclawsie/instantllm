@@ -158,6 +158,8 @@ case "bench":
     let variant = args.get("variant", engine.format.description)
     if args.flags.contains("ignore-eos") { engine.eos = (-5, -5) }
     engine.chunk = args.int("chunk", engine.chunk)
+    engine.specT = args.int("spec", 1)
+    if engine.specT > 1 { try? engine.loadDraftTable(path: args.get("draft-table", "models/ill/ngram.bin")) }
     engine.depth = args.int("depth", engine.depth)
     engine.firstChunk = args.int("first-chunk", engine.firstChunk)
     let prefixLen = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n").count
@@ -178,9 +180,11 @@ case "bench":
     for p in prompts { _ = request(p) }  // warmup (also caches the system prefix)
     print("engine\tvariant\tmode\tprompt_idx\trep\te2e_ms\tttft_ms\tprefill_tokens\tgen_tokens\tdecode_tok_s\ttext")
     var e2e: [Double] = [], ttft: [Double] = [], dec: [Double] = []
+    var totPasses = 0, totAcc = 0, totGen = 0
     for (i, p) in prompts.enumerated() {
         for r in 0..<reps {
             let res = request(p)
+            totPasses += res.t.passes; totAcc += res.t.accepted; totGen += res.gen
             let ttftMs = ms(res.t0, res.t.tFirst)
             let decTs = res.gen > 1 ? Double(res.gen - 1) / (ms(res.t.tFirst, res.t.tEnd) / 1e3) : Double.nan
             e2e.append(ms(res.t0, res.t1)); ttft.append(ttftMs); if res.gen > 1 { dec.append(decTs) }
@@ -189,8 +193,8 @@ case "bench":
         }
     }
     func med(_ a: [Double]) -> Double { let s = a.sorted(); return s.isEmpty ? .nan : s[s.count / 2] }
-    FileHandle.standardError.write(String(format: "instantllm %@ %@: median e2e %.2f ms, ttft %.2f ms, decode %.1f tok/s\n",
-                                          variant, mode, med(e2e), med(ttft), med(dec)).data(using: .utf8)!)
+    FileHandle.standardError.write(String(format: "instantllm %@ %@: median e2e %.2f ms, ttft %.2f ms, decode %.1f tok/s (passes %d, accepted drafts %d, tokens %d)\n",
+                                          variant, mode, med(e2e), med(ttft), med(dec), totPasses, totAcc, totGen).data(using: .utf8)!)
 
 case "run":
     // One-shot: tokenize, generate, stream the command to stdout.
@@ -265,6 +269,23 @@ case "batch":
     }
     fh.closeFile()
     print("wrote \(lines.count) outputs to \(outPath)")
+
+case "ngram":
+    // Builds the speculative-decoding draft table from JSONL outputs ({"ids": [...], "stop": id}).
+    var seqs: [[Int32]] = []
+    for path in args.positional {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { fail("cannot read \(path)") }
+        for line in text.split(separator: "\n") {
+            guard let d = line.data(using: .utf8), let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                  let ids = j["ids"] as? [Int] else { continue }
+            var seq = ids.map { Int32($0) }
+            if let stop = j["stop"] as? Int, stop >= 0 { seq.append(Int32(stop)) }
+            seqs.append(seq)
+        }
+    }
+    let table = NGramTable.build(seqs)
+    try! table.write(to: URL(fileURLWithPath: args.get("out", "models/ill/ngram.bin")))
+    print("built draft table from \(seqs.count) sequences")
 
 case "tokenize":
     do {

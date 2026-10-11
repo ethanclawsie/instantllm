@@ -31,7 +31,10 @@ public final class ILDraft {
     static let oAsTok = oNBTok + maxNB * nbSeqMax
     static let oAsMax = oAsTok + maxAs
     static let oAsCnt = oAsMax + maxAs
-    static let reqInts = oAsCnt + maxAs
+    static let oTreeB = oAsCnt + maxAs
+    static let reqInts = oTreeB + 1
+    /// Draft tree budget for the next prepared request (0: chain).
+    public var treeB = 0
 
     public init(path: String, device: MTLDevice) throws {
         guard let d = FileManager.default.contents(atPath: path), d.count >= 64 else { throw EngineError("cannot read \(path)") }
@@ -136,6 +139,7 @@ public final class ILDraft {
         let r = req.contents().assumingMemoryBound(to: Int32.self)
         let rf = req.contents().assumingMemoryBound(to: Float.self)
         let P = Array(prompt.prefix(ILDraft.maxP))
+        r[ILDraft.oTreeB] = Int32(min(treeB, 15))
         r[ILDraft.oNP] = Int32(P.count)
         for (i, t) in P.enumerated() { r[ILDraft.oP + i] = t }
         let pset = Set(P)

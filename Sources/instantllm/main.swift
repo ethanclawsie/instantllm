@@ -177,6 +177,7 @@ case "bench":
         }
     }
     engine.learnedT = args.int("learned-t", engine.learnedT)
+    engine.learnedTree = args.int("learned-tree", engine.learnedTree)
     let prefixLen = tok.encodeWithSpecials("<|im_start|>system\n" + system + "<|im_end|>\n<|im_start|>user\n").count
     func esc(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\t", with: "\\t")
@@ -197,12 +198,15 @@ case "bench":
     if let ab = args.options["abba"] {
         // Paired comparison inside one process: per prompt run A, B, B, A (drift cancels).
         // --abba T compares speculation width T with plain decoding, --abba A,B two widths.
-        // "w8" = a wide verify pass (Neural Accelerators) with 8 rows; an "l" prefix = learned drafter.
-        let parse = { (x0: Substring) -> (Int, Bool, Bool) in
+        // "w8" = a wide verify pass (Neural Accelerators) with 8 rows; an "l" prefix = learned drafter;
+        // "lt15" = learned drafter building a 15-draft tree (wide passes of 16 rows).
+        let parse = { (x0: Substring) -> (Int, Bool, Bool, Int) in
+            if x0.hasPrefix("lt") { let b = Int(x0.dropFirst(2)) ?? 7; return (b + 1, true, true, b) }
             let l = x0.hasPrefix("l"), x = l ? x0.dropFirst() : x0
-            return x.hasPrefix("w") ? (Int(x.dropFirst()) ?? 8, true, l) : (Int(x) ?? 2, false, l)
+            return x.hasPrefix("w") ? (Int(x.dropFirst()) ?? 8, true, l, 0) : (Int(x) ?? 2, false, l, 0)
         }
         let w = ab.split(separator: ",").map(parse)
+        let (aTree, bTree) = w.count == 2 ? (w[0].3, w[1].3) : (0, w.first?.3 ?? 0)
         let (aT, abT) = w.count == 2 ? (w[0].0, w[1].0) : (1, w.first?.0 ?? 2)
         let (aWide, bWide) = w.count == 2 ? (w[0].1, w[1].1) : (false, w.first?.1 ?? false)
         let (aL, bL) = w.count == 2 ? (w[0].2, w[1].2) : (false, w.first?.2 ?? false)
@@ -212,8 +216,9 @@ case "bench":
             for p in prompts {
                 var e = [Double](repeating: 0, count: 4), t = [Double](repeating: 0, count: 4)
                 for (i, T) in [aT, abT, abT, aT].enumerated() {
-                    let (wide, learned) = (i == 1 || i == 2) ? (bWide, bL) : (aWide, aL)
+                    let (wide, learned, tr) = (i == 1 || i == 2) ? (bWide, bL, bTree) : (aWide, aL, aTree)
                     engine.useLearned = learned
+                    engine.learnedTree = tr
                     if learned { engine.learnedT = T; engine.learnedWide = wide } else { engine.specT = T; engine.wideVerify = wide }
                     let res = request(p)
                     e[i] = ms(res.t0, res.t1); t[i] = ms(res.t0, res.t.tFirst)
@@ -225,7 +230,7 @@ case "bench":
         func med(_ a: [Double]) -> Double { let s = a.sorted(); return s[s.count / 2] }
         let mean = { (a: [Double]) in a.reduce(0, +) / Double(a.count) }
         print(String(format: "ABBA spec %@%d vs %@%d: e2e mean %.2f -> %.2f ms (%.1f%%), median paired delta %.2f ms; ttft median delta %.2f ms",
-                     (bL ? "l" : "") + (bWide ? "w" : ""), abT, (aL ? "l" : "") + (aWide ? "w" : ""), aT, mean(plainE), mean(specE), 100 * (mean(specE) / mean(plainE) - 1), med(dE), med(dT)))
+                     (bL ? "l" : "") + (bTree > 0 ? "t" : (bWide ? "w" : "")), abT, (aL ? "l" : "") + (aTree > 0 ? "t" : (aWide ? "w" : "")), aT, mean(plainE), mean(specE), 100 * (mean(specE) / mean(plainE) - 1), med(dE), med(dT)))
         exit(0)
     }
     print("engine\tvariant\tmode\tprompt_idx\trep\te2e_ms\tttft_ms\tprefill_tokens\tgen_tokens\tdecode_tok_s\ttext")

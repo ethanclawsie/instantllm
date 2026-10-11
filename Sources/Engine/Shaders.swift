@@ -20,6 +20,15 @@ using namespace mpp::tensor_ops;
 #define LMH_ROWS_PER_TG 32
 #define LMH_TGS (VOCAB / LMH_ROWS_PER_TG)
 
+// Draft trees (wide verify passes with st->pad4 set): ints [n, depth[16], parent[16], tok[16], anc[16]];
+// row 0 is the last committed token, row i a draft whose parent row is parent[i]; anc[i] has bit j set
+// for every row j on its path (itself included). Row i sits at KV slot pos + i, rotated as pos + depth.
+#define TR_DEPTH 1
+#define TR_PARENT 17
+#define TR_TOK 33
+#define TR_ANC 49
+#define TR_INTS 65
+
 // Decode/verify code is compiled with strict fp semantics: under fast math the compiler may
 // reassociate differently in each T instantiation, and verify passes must reproduce the T = 1
 // numerics bit for bit (speculation never changes the output). Prefill code below switches back.
@@ -252,6 +261,9 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
                           device int* drafts [[buffer(7)]],
                           device const NGEntry* tab [[buffer(8)]],
                           device const int* prompt [[buffer(9)]],   // [count, -, -, -, last <= 256 prompt tokens]
+                          device const int* tree [[buffer(10)]],    // draft tree of the pass (st->pad4)
+                          device half* kcache [[buffer(11)]],       // whole KV caches (tree: accepted rows move)
+                          device half* vcache [[buffer(12)]],
                           uint tid [[thread_index_in_threadgroup]],
                           uint lane [[thread_index_in_simdgroup]],
                           uint sg [[simdgroup_index_in_threadgroup]]) {
@@ -263,6 +275,8 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
     threadgroup int nrows_s;
     threadgroup int have_s;
     threadgroup int ob[OB_MAX + 16];  // recent output tokens, then the drafts of this commit
+    threadgroup int path_s[16];
+    threadgroup int npath_s, pos0_s;
     const int nv = st->nver;
     for (int t = 0; t < nv; t++) {
         float best = -INFINITY;
@@ -293,19 +307,35 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
     if (tid == 0) {
         st->pad0 += 1;                       // passes committed (diagnostics)
         int m = 0;
-        while (m < nv - 1 && drafts[m] == g[m]) m++;
+        const bool treeMode = st->pad4 != 0;
+        if (treeMode) {
+            // longest path from the root whose every draft equals its parent row's argmax
+            int cur = 0;
+            for (;;) {
+                int c = -1;
+                for (int i = 1; i < nv; ++i) if (tree[TR_PARENT + i] == cur && tree[TR_TOK + i] == g[cur]) { c = i; break; }
+                if (c < 0) break;
+                path_s[m++] = c;
+                cur = c;
+            }
+        } else {
+            while (m < nv - 1 && drafts[m] == g[m]) m++;
+        }
         if (m > 0) st->pad1 += m;            // accepted drafts (diagnostics)
         bool stop = false;
         int last = g[0];
         for (int i = 0; i <= m && !stop; i++) {
-            const int tok = g[i];
+            const int tok = g[(treeMode && i > 0) ? path_s[i - 1] : i];
             out_tokens[st->step] = tok;
             st->step += 1;
             last = tok;
             if (tok == st->eos0 || tok == st->eos1 || st->step >= st->maxsteps) stop = true;
         }
         // the pass covered positions pos .. pos+nver-1; rows 0..m are now real context
+        pos0_s = st->pos;
+        npath_s = treeMode ? m : 0;
         st->pos += (nv == 1 ? st->n : m + 1);
+        st->pad4 = 0;
         if (stop) {
             st->done = 1;
             nrows_s = 0;
@@ -318,6 +348,21 @@ kernel void k_commit_spec(device const float* pval [[buffer(0)]],
         }
     }
     threadgroup_barrier(mem_flags::mem_device | mem_flags::mem_threadgroup);
+    // tree: the accepted row path[k-1] (KV slot pos0 + path[k-1]) becomes position pos0 + k; it was
+    // already rotated as pos0 + depth = pos0 + k. Sources and destinations never overlap.
+    if (npath_s > 0) {
+        const int p0 = pos0_s, maxctx = st->maxctx;
+        for (int k = 1; k <= npath_s; ++k) {
+            const int src = p0 + path_s[k - 1], dst = p0 + k;
+            if (src == dst) continue;
+            for (int j = int(tid); j < 24 * NKV * HD; j += 1024) {
+                const int l = j / (NKV * HD), hh = (j / HD) % NKV, d = j % HD;
+                const ulong base = (ulong)(l * NKV + hh) * maxctx * HD + d;
+                kcache[base + (ulong)dst * HD] = kcache[base + (ulong)src * HD];
+                vcache[base + (ulong)dst * HD] = vcache[base + (ulong)src * HD];
+            }
+        }
+    }
     if (nrows_s < 0) {
         const int have = have_s;
         const int w0 = max(0, have - OB_MAX);
@@ -401,6 +446,7 @@ struct DraftReq {
     int asTok[DR_MAXAS];
     float asMax[DR_MAXAS];
     int asCnt[DR_MAXAS];
+    int treeB;          // > 0: best-first draft tree with treeB nodes (8 children per expansion)
 };
 #define DR_F 53
 #define DR_RAW (85 + DR_MAXCOPY)
@@ -423,10 +469,26 @@ kernel void k_ildraft(device const uchar* tab [[buffer(0)]], constant DraftMeta&
                       device State* st [[buffer(4)]], device const int* out_tokens [[buffer(5)]],
                       device int* drafts [[buffer(6)]], device const wtype* E [[buffer(7)]],
                       device const half2* ESB [[buffer(8)]], device float* x [[buffer(9)]],
+                      device int* tree [[buffer(10)]],
+                      constant int2& shape [[buffer(11)]],     // this pass: rows, tree drafts (0: chain)
                       uint tid [[thread_index_in_threadgroup]], uint lane [[thread_index_in_simdgroup]],
                       uint sg [[simdgroup_index_in_threadgroup]]) {
     if (st->done) return;
     threadgroup int ob[OB_MAX + 16];
+    threadgroup int s_depth, s_go, s_erow, s_ticks0, s_rows;
+    threadgroup float s_best_s;
+    threadgroup int s_best_t;
+    threadgroup int tr_par[16], tr_tok[16], tr_dep[16];
+    threadgroup uint tr_anc[16];
+    threadgroup float tr_cum[16];
+    threadgroup float h_cum[128];
+    threadgroup int h_par[128], h_tok[128], h_ord[128];
+    threadgroup int h_n, h_ctr;
+    threadgroup int tk_tok[8];
+    threadgroup float tk_e[8];
+    threadgroup float zpart[32];
+    threadgroup float csc[DR_RAW];
+    threadgroup int ctk[DR_RAW];
     threadgroup int dist_tot[7], dist_fn[7];
     threadgroup int s_long, s_supp3, s_supp10, s_toplong, s_entlow;
     threadgroup int self_tok, self_n, pr_n, pr_cnt, pr_e[32];
@@ -452,21 +514,28 @@ kernel void k_ildraft(device const uchar* tab [[buffer(0)]], constant DraftMeta&
     const int have = st->step;
     const int w0 = max(0, have - OB_MAX);
     for (int i = w0 + int(tid); i < have; i += 1024) ob[i - w0] = out_tokens[i];
+    const int first_out = out_tokens[0];
+    const int T = shape.x;
+    const int treeB = shape.y;
+    const int K = st->pad2 ? 0 : (treeB > 0 ? min(treeB, T - 1) : T - 1);
+    const int base = have - w0;                // committed tokens in the window
     if (tid == 0) {
         next_rows[0] = out_tokens[have - 1];
         s_nd = 0; s_stop = 0;
         int tk = 0;
         for (int i = 0; i < have; ++i) tk += tflg[out_tokens[i]] & 7;
-        s_ticks = tk;
+        s_ticks = tk; s_ticks0 = tk;
+        s_depth = 0; s_go = K > 0 ? 1 : 0;
+        s_rows = 1; s_erow = 0; h_n = 0; h_ctr = 0;
+        tr_par[0] = -1; tr_tok[0] = out_tokens[have - 1]; tr_dep[0] = 0; tr_anc[0] = 1u; tr_cum[0] = 1.f;
     }
-    const int first_out = out_tokens[0];
-    const int T = st->tspec;
-    const int K = st->pad2 ? 0 : T - 1;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (int d = 0; d < K; ++d) {
-        if (s_stop) break;
-        const int Lo = have - w0 + d;          // tokens of the output window in ob
-        const int Lfull = have + d;            // full output length
+    // One context evaluation per iteration: the chain appends its argmax; the tree pushes the top-8
+    // children of the expanded row and pops the next row to expand (best cumulative probability).
+    for (int it = 0; it < 64; ++it) {
+        if (!s_go) break;
+        const int Lo = base + s_depth;         // tokens of the context's output part in ob
+        const int Lfull = have + s_depth;      // full output length
         const int L = 5 + Lo;                  // ctx = TAIL + out
         // ---- phase A: sources ----
         if (sg == 0) {
@@ -695,30 +764,80 @@ kernel void k_ildraft(device const uchar* tab [[buffer(0)]], constant DraftMeta&
             }
             score = sc;
         }
-        // ---- phase D: argmax (highest score, then smallest token) ----
+        // ---- phase D: best candidate; for trees also the top 8 with probabilities ----
+        if (int(tid) < nu) { csc[tid] = score; ctk[tid] = tok; }
+        float rs = score;
+        int rt = tok;
         for (ushort off = 16; off > 0; off >>= 1) {
-            const float os = simd_shuffle_down(score, off);
-            const int ot = simd_shuffle_down(tok, off);
-            if (os > score || (os == score && ot < tok)) { score = os; tok = ot; }
+            const float os = simd_shuffle_down(rs, off);
+            const int ot = simd_shuffle_down(rt, off);
+            if (os > rs || (os == rs && ot < rt)) { rs = os; rt = ot; }
         }
-        if (lane == 0) { bsc[sg] = score; btk[sg] = tok; }
+        if (lane == 0) { bsc[sg] = rs; btk[sg] = rt; }
         threadgroup_barrier(mem_flags::mem_threadgroup);
         if (sg == 0) {
-            score = bsc[lane]; tok = btk[lane];
+            rs = bsc[lane]; rt = btk[lane];
             for (ushort off = 16; off > 0; off >>= 1) {
-                const float os = simd_shuffle_down(score, off);
-                const int ot = simd_shuffle_down(tok, off);
-                if (os > score || (os == score && ot < tok)) { score = os; tok = ot; }
+                const float os = simd_shuffle_down(rs, off);
+                const int ot = simd_shuffle_down(rt, off);
+                if (os > rs || (os == rs && ot < rt)) { rs = os; rt = ot; }
             }
-            if (lane == 0) {
-                if (nu == 0 || tok == 0x7fffffff) { s_stop = 1; }
-                else {
-                    drafts[d] = tok;
-                    next_rows[d + 1] = tok;
-                    ob[Lo] = tok;
+            if (lane == 0) { s_best_s = rs; s_best_t = rt; }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (treeB > 0) {
+            const float mx = max(s_best_s, 0.f);
+            float ez = 0.f;
+            if (int(tid) < nu) {
+                ez = exp(score - mx);
+                int rank = 0;
+                for (int j = 0; j < nu; ++j) { const float sj = csc[j]; rank += (sj > score || (sj == score && ctk[j] < tok)) ? 1 : 0; }
+                if (rank < 8) { tk_tok[rank] = tok; tk_e[rank] = ez; }
+            }
+            ez = simd_sum(ez);
+            if (lane == 0) zpart[sg] = ez;
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+        if (tid == 0) {
+            if (treeB == 0) {
+                const int bt = s_best_t;
+                if (nu == 0 || bt == 0x7fffffff) {
+                    s_go = 0;
+                } else {
+                    const int d = s_nd;
+                    drafts[d] = bt;
+                    next_rows[d + 1] = bt;
+                    ob[Lo] = bt;
                     s_nd = d + 1;
-                    s_ticks += tflg[tok] & 7;
-                    if (tok == st->eos0 || tok == st->eos1) s_stop = 1;
+                    s_depth = d + 1;
+                    s_ticks += tflg[bt] & 7;
+                    s_go = (s_nd < K && bt != st->eos0 && bt != st->eos1) ? 1 : 0;
+                }
+            } else {
+                float Z = exp(-max(s_best_s, 0.f));
+                for (int q = 0; q < 32; ++q) Z += zpart[q];
+                const int ntop = min(8, nu);
+                const float pc = tr_cum[s_erow];
+                for (int k = 0; k < ntop && h_n < 128; ++k) {
+                    h_cum[h_n] = pc * tk_e[k] / Z; h_par[h_n] = s_erow; h_tok[h_n] = tk_tok[k]; h_ord[h_n] = h_ctr++;
+                    h_n++;
+                }
+                s_go = 0;
+                while (s_rows < K + 1 && h_n > 0) {
+                    int b = 0;
+                    for (int q = 1; q < h_n; ++q) if (h_cum[q] > h_cum[b] || (h_cum[q] == h_cum[b] && h_ord[q] < h_ord[b])) b = q;
+                    const float cum = h_cum[b];
+                    const int par = h_par[b], tkn = h_tok[b];
+                    h_n--;
+                    h_cum[b] = h_cum[h_n]; h_par[b] = h_par[h_n]; h_tok[b] = h_tok[h_n]; h_ord[b] = h_ord[h_n];
+                    const int i = s_rows++;
+                    tr_par[i] = par; tr_tok[i] = tkn; tr_dep[i] = tr_dep[par] + 1;
+                    tr_anc[i] = tr_anc[par] | (1u << i); tr_cum[i] = cum;
+                    if (tkn == st->eos0 || tkn == st->eos1 || s_rows == K + 1) continue;   // not expanded
+                    int r = i, dpos = tr_dep[i], tk2 = s_ticks0;
+                    while (r > 0) { ob[base + dpos - 1] = tr_tok[r]; tk2 += tflg[tr_tok[r]] & 7; dpos--; r = tr_par[r]; }
+                    s_depth = tr_dep[i]; s_erow = i; s_ticks = tk2; s_go = 1;
+                    break;
                 }
             }
         }
@@ -726,7 +845,22 @@ kernel void k_ildraft(device const uchar* tab [[buffer(0)]], constant DraftMeta&
     }
     const int nd = s_nd;
     if (tid == 0) {
-        for (int i = nd; i < T - 1; i++) { drafts[i] = -2; next_rows[i + 1] = 0; }
+        if (treeB > 0) {
+            const int rows = s_rows;
+            tree[0] = rows;
+            for (int i = 0; i < T; ++i) {
+                int dep = 1, par = -1, tk = 0;
+                uint an = 1u | (1u << i);              // padding rows: unmatched children of nothing
+                if (i == 0) { dep = 0; tk = next_rows[0]; an = 1u; }
+                else if (i < rows) { dep = tr_dep[i]; par = tr_par[i]; tk = tr_tok[i]; an = tr_anc[i]; }
+                tree[TR_DEPTH + i] = dep; tree[TR_PARENT + i] = par; tree[TR_TOK + i] = tk; tree[TR_ANC + i] = int(an);
+                next_rows[i] = tk;
+            }
+            st->pad4 = 1;
+        } else {
+            for (int i = nd; i < T - 1; i++) { drafts[i] = -2; next_rows[i + 1] = 0; }
+        }
+        st->tspec = T;
         st->nver = T;
         st->n = T;
     }
@@ -747,6 +881,7 @@ kernel void k_attention(device const float* q [[buffer(0)]],
                         device const State* st [[buffer(4)]],
                         constant int& toff [[buffer(5)]],
                         device half* outh [[buffer(6)]],      // the same output as fp16 (prefill GEMM input)
+                        device const int* tree [[buffer(7)]], // draft tree (st->pad4): attend to ancestors only
                         uint2 tgp [[threadgroup_position_in_grid]],
                         uint tid [[thread_index_in_threadgroup]],
                         uint lane [[thread_index_in_simdgroup]],
@@ -755,19 +890,31 @@ kernel void k_attention(device const float* q [[buffer(0)]],
     const int h = tgp.x;
     const int t = tgp.y + toff;
     if (t >= st->n) return;
-    const int L = st->pos + t + 1;
+    // Tree rows attend to the context and their ancestors only. They iterate over virtual positions
+    // (context, then the path in depth order, each mapped to its KV slot), so every sum runs in the
+    // same order as for the same token decoded on its own: bit-identical results.
+    const bool tm = st->pad4 != 0;
+    const int p0 = st->pos;
+    const int depth = tm ? tree[TR_DEPTH + t] : t;
+    const int L = p0 + depth + 1;
     const int g = h / (NH / NKV);
     threadgroup float qs[HD];
     threadgroup float sc[MAXCTX_TG];
     threadgroup float red[8];
     threadgroup float part[256];
+    threadgroup int prow[16];
+    if (tm && tid == 0) {
+        int r = t;
+        for (int d = depth; d >= 0; --d) { prow[d] = r; r = r > 0 ? tree[TR_PARENT + r] : 0; }
+    }
     if (tid < HD) qs[tid] = q[t * H + h * HD + tid] * 0.125f;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     device const half* kb = kc + (ulong)g * st->maxctx * HD;
     device const half* vb = vc + (ulong)g * st->maxctx * HD;
     float m = -INFINITY;
     for (int s = tid; s < L; s += 256) {
-        device const half4* kr = (device const half4*)(kb + (ulong)s * HD);
+        const int slot = (tm && s >= p0) ? p0 + prow[s - p0] : s;
+        device const half4* kr = (device const half4*)(kb + (ulong)slot * HD);
         float a = 0.f;
         for (int j = 0; j < 16; ++j) a += dot(float4(kr[j]), *((threadgroup const float4*)(qs + 4 * j)));
         sc[s] = a;
@@ -789,7 +936,7 @@ kernel void k_attention(device const float* q [[buffer(0)]],
     const int d = tid & 63;
     const int p = tid >> 6;
     float o = 0.f;
-    for (int s = p; s < L; s += 4) o += sc[s] * float(vb[(ulong)s * HD + d]);
+    for (int s = p; s < L; s += 4) o += sc[s] * float(vb[(ulong)((tm && s >= p0) ? p0 + prow[s - p0] : s) * HD + d]);
     part[tid] = o;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < HD) {
@@ -1754,6 +1901,7 @@ template<int K, int MODE, int TT, int NS, typename TX>
 inline void gemm3_core(TX tX, device const wtype* W, device const half2* SB,
                        device const float* bias, device float* outf, device half* outh,
                        device half* kc, device half* vc, device const float2* rope, device const State* st,
+                       device const int* tree,
                        threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
     // Each simdgroup takes a contiguous K range (whole cache lines of its 32 rows): K = 896 -> 7
     // steps of 32 columns, K = 4864 -> 19 steps of 64. Lane = row; w = (16 s)(1 + n/16) + (b - 16 s).
@@ -1839,9 +1987,10 @@ inline void gemm3_core(TX tX, device const wtype* W, device const half2* SB,
             float a = bias[r0 + i], b = bias[r0 + i + 16];
             for (int q = 0; q < NS; ++q) { a += Os[q * TT * 32 + t * 32 + i]; b += Os[q * TT * 32 + t * 32 + i + 16]; }
             const int pos = st->pos + t0 + t;
+            const int rpos = st->pad4 ? st->pos + tree[TR_DEPTH + t0 + t] : pos;   // tree rows: rotate by depth
             const int d = (tgp.x & 1) * 16 + i;
             if (head < NH + NKV) {
-                const float2 cs = rope[pos * 32 + d];
+                const float2 cs = rope[rpos * 32 + d];
                 const float a2 = a * cs.x - b * cs.y;
                 const float b2 = b * cs.x + a * cs.y;
                 a = a2; b = b2;
@@ -1897,9 +2046,10 @@ template<int K, int MODE, int TT, int NS>
 inline void gemm3_body(device half* X, device const wtype* W, device const half2* SB,
                        device const float* bias, device float* outf, device half* outh,
                        device half* kc, device half* vc, device const float2* rope, device const State* st,
+                       device const int* tree,
                        threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
     auto tX = tensor(X + (ulong)(tgp.y * TT) * K, dextents<int, 2>(K, TT), array<int, 2>({1, K}));
-    gemm3_core<K, MODE, TT, NS>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, Wsg, Os, tgp, tid, lane, sg);
+    gemm3_core<K, MODE, TT, NS>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, tree, Wsg, Os, tgp, tid, lane, sg);
 }
 
 // K = H GEMMs with the RMSNorm folded in: each threadgroup normalizes its TT rows of x into
@@ -1909,6 +2059,7 @@ inline void gemm3f_body(device const float* x, device const float* wn, threadgro
                         device const wtype* W, device const half2* SB,
                         device const float* bias, device float* outf, device half* outh,
                         device half* kc, device half* vc, device const float2* rope, device const State* st,
+                        device const int* tree,
                         threadgroup half* Wsg, threadgroup float* Os, uint2 tgp, uint tid, uint lane, uint sg) {
     const int t0 = tgp.y * TT, n = st->n;
     for (int t = int(sg); t < TT; t += NS) {
@@ -1925,7 +2076,7 @@ inline void gemm3f_body(device const float* x, device const float* wn, threadgro
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     auto tX = tensor(Xs, dextents<int, 2>(H, TT), array<int, 2>({1, H}));
-    gemm3_core<H, MODE, TT, NS>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, Wsg, Os, tgp, tid, lane, sg);
+    gemm3_core<H, MODE, TT, NS>(tX, W, SB, bias, outf, outh, kc, vc, rope, st, tree, Wsg, Os, tgp, tid, lane, sg);
 }
 
 #define GEMM3(NAME, K, MODE, TT, NS) \
@@ -1934,12 +2085,13 @@ kernel void NAME(device half* X [[buffer(0)]], device const wtype* W [[buffer(1)
                  device float* outf [[buffer(4)]], device half* outh [[buffer(5)]], \
                  device half* kc [[buffer(6)]], device half* vc [[buffer(7)]], \
                  device const float2* rope [[buffer(8)]], device const State* st [[buffer(9)]], \
+                 device const int* tree [[buffer(12)]], \
                  uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]], \
                  uint lane [[thread_index_in_simdgroup]], uint sg [[simdgroup_index_in_threadgroup]]) { \
     if (st->done || (int)(tgp.y * TT) >= st->n) return; \
     constexpr int WB = NS * 32 * (K == H ? 32 : 64) * 2, OB = NS * TT * 32 * 4; \
     threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
-    gemm3_body<K, MODE, TT, NS>(X, W, SB, bias, outf, outh, kc, vc, rope, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
+    gemm3_body<K, MODE, TT, NS>(X, W, SB, bias, outf, outh, kc, vc, rope, st, tree, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
 }
 #define GEMM3_ALL(TT) \
 GEMM3(k_g3_qkv_##TT, H, 0, TT, 4) \
@@ -1958,13 +2110,14 @@ kernel void NAME(device half* X [[buffer(0)]], device const wtype* W [[buffer(1)
                  device half* kc [[buffer(6)]], device half* vc [[buffer(7)]], \
                  device const float2* rope [[buffer(8)]], device const State* st [[buffer(9)]], \
                  device const float* xin [[buffer(10)]], device const float* wn [[buffer(11)]], \
+                 device const int* tree [[buffer(12)]], \
                  uint2 tgp [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]], \
                  uint lane [[thread_index_in_simdgroup]], uint sg [[simdgroup_index_in_threadgroup]]) { \
     if (st->done || (int)(tgp.y * TT) >= st->n) return; \
     constexpr int WB = NS * 32 * 32 * 2, OB = NS * TT * 32 * 4; \
     threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
     threadgroup half Xs[TT * H]; \
-    gemm3f_body<MODE, TT, NS>(xin, wn, Xs, W, SB, bias, outf, outh, kc, vc, rope, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
+    gemm3f_body<MODE, TT, NS>(xin, wn, Xs, W, SB, bias, outf, outh, kc, vc, rope, st, tree, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
 }
 GEMM3F(k_g3f_qkv_8, 0, 8, 4)
 GEMM3F(k_g3f_gu_8, 2, 8, 4)
@@ -2087,7 +2240,7 @@ kernel void NAME(device half* X [[buffer(0)]], device const wtype* E [[buffer(1)
     if (st->done) return; \
     constexpr int WB = 4 * 32 * 64 * 2, OB = 4 * TT * 32 * 4; \
     threadgroup float smem[(WB > OB ? WB : OB) / 4]; \
-    gemm3_body<H, 3, TT, 4>(X, E, ESB, pval, pval, (device half*)pidx, nullptr, nullptr, nullptr, st, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
+    gemm3_body<H, 3, TT, 4>(X, E, ESB, pval, pval, (device half*)pidx, nullptr, nullptr, nullptr, st, nullptr, (threadgroup half*)smem, smem, tgp, tid, lane, sg); \
 }
 GEMM3L(k_g3_lmh_8, 8)
 GEMM3L(k_g3_lmh_16, 16)

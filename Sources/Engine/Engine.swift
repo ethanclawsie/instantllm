@@ -21,6 +21,7 @@ public final class Engine {
     let x, xn, q, attn, hbuf, kc, vc, state, promptToks, outToks, pval, pidx, logits, rope: MTLBuffer
     let xnh, attnh, hh: MTLBuffer
     let drafts, promptRecent: MTLBuffer
+    let treeBuf: MTLBuffer   // draft tree of the pass in flight (ints, layout TR_* in Shaders.swift)
     var ngram: MTLBuffer
     let pEmbedPrompt, pCommit, pAttnIn, pAttention, pOProj, pMlpIn, pMlpOut, pLMHead: MTLComputePipelineState
     let pRmsRowsH, pF32ToH, pNoop: MTLComputePipelineState
@@ -115,6 +116,7 @@ public final class Engine {
         pval = buf(16 * Dims.vocab / 32 * 4)   // lm_head argmax partials [row][VOCAB / 32], up to 16 rows
         pidx = buf(16 * Dims.vocab / 32 * 4)
         drafts = buf(64)
+        treeBuf = buf(65 * 4)
         lmhBounds = buf(4 * 2 * Dims.vocab / 32 * 4)
         lmhTau = buf(64)
         promptRecent = buf(4 * (4 + 256))   // [count, -, -, -, last <= 256 prompt tokens] for prompt lookup
@@ -263,7 +265,7 @@ public final class Engine {
         e.setBuffer(vc, offset: kvOff, index: 2)
         e.setBuffer(attn, offset: 0, index: 3)
         e.setBuffer(state, offset: 0, index: 4)
-        e.setBuffer(attnh, offset: 0, index: 6)
+        e.setBuffer(attnh, offset: 0, index: 6); e.setBuffer(treeBuf, offset: 0, index: 7)
         var toff: Int32 = 0
         e.setBytes(&toff, length: 4, index: 5)
         grid(e, Dims.heads, n)
@@ -325,6 +327,7 @@ public final class Engine {
             e.setBuffer(vc, offset: kvOff, index: 7)
             e.setBuffer(rope, offset: 0, index: 8)
             e.setBuffer(state, offset: 0, index: 9)
+            e.setBuffer(treeBuf, offset: 0, index: 12)
             grid(e, rows / 32, (n + tt - 1) / tt, 128)
             return
         }
@@ -386,7 +389,7 @@ public final class Engine {
         }
         e.setComputePipelineState(pAttention)
         e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
-        e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4); e.setBuffer(attnh, offset: 0, index: 6)
+        e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4); e.setBuffer(attnh, offset: 0, index: 6); e.setBuffer(treeBuf, offset: 0, index: 7)
         if l == Dims.layers - 1 && n > 1 && !allRows {
             // Last layer: only the last token's output is needed (the KV of all tokens is already
             // written by the QKV kernel), so attention, O and the MLP run for that token alone,
@@ -428,6 +431,7 @@ public final class Engine {
         e.setBuffer(state, offset: 0, index: 9)
         e.setBuffer(x, offset: 0, index: 10)
         w(e, normID, 11)
+        e.setBuffer(treeBuf, offset: 0, index: 12)
         grid(e, rows / 32, 1, 128)
     }
 
@@ -491,12 +495,19 @@ public final class Engine {
         e.setBuffer(drafts, offset: 0, index: 7)
         e.setBuffer(ngram, offset: 0, index: 8)
         e.setBuffer(promptRecent, offset: 0, index: 9)
+        e.setBuffer(treeBuf, offset: 0, index: 10)
+        e.setBuffer(kc, offset: 0, index: 11)
+        e.setBuffer(vc, offset: 0, index: 12)
         grid(e, 1, 1, 1024)
     }
 
     /// Learned drafting for the next pass: the first dispatch of a pass's command buffer, so the
     /// previous commit's tokens become CPU-visible without waiting for it.
-    private func encodeLearnedDraft(_ e: MTLComputeCommandEncoder) {
+    private let draftRepeat = Int(ProcessInfo.processInfo.environment["ILL_DRAFT_REPEAT"] ?? "") ?? 0   // cost measurement
+    private func encodeLearnedDraft(_ e: MTLComputeCommandEncoder, T: Int, treeB: Int) {
+        for _ in 0...draftRepeat { encodeLearnedDraftOnce(e, T: T, treeB: treeB) }
+    }
+    private func encodeLearnedDraftOnce(_ e: MTLComputeCommandEncoder, T: Int, treeB: Int) {
         if learnedActive, let d = ildraft, let p = pILDraft {
             e.setComputePipelineState(p)
             e.setBuffer(d.table, offset: 0, index: 0); e.setBuffer(d.meta, offset: 0, index: 1)
@@ -505,6 +516,9 @@ public final class Engine {
             e.setBuffer(drafts, offset: 0, index: 6)
             w(e, TensorID.embed, 7); w(e, TensorID.embedSB, 8)
             e.setBuffer(x, offset: 0, index: 9)
+            e.setBuffer(treeBuf, offset: 0, index: 10)
+            var shape = SIMD2<Int32>(Int32(T), Int32(treeB))
+            e.setBytes(&shape, length: 8, index: 11)
             grid(e, 1, 1, 1024)
         }
     }
@@ -513,7 +527,7 @@ public final class Engine {
     private func encodeSpecPass(_ e: MTLComputeCommandEncoder, T: Int, p pv: [MTLComputePipelineState]? = nil, R rv: Int? = nil) {
         let p = pv ?? pSpec[T]!
         let R = rv ?? Engine.specRows(T)
-        if pv == nil { encodeLearnedDraft(e) }
+        if pv == nil { encodeLearnedDraft(e, T: T, treeB: 0) }
         for l in 0..<Dims.layers {
             let kvOff = l * Dims.kvHeads * maxContext * Dims.headDim * 2
             let L = { TensorID.layer(l, $0) }
@@ -525,7 +539,7 @@ public final class Engine {
             grid(e, 36, 1, 32 * (32 / R))
             e.setComputePipelineState(pAttention)
             e.setBuffer(q, offset: 0, index: 0); e.setBuffer(kc, offset: kvOff, index: 1); e.setBuffer(vc, offset: kvOff, index: 2)
-            e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4); e.setBuffer(attnh, offset: 0, index: 6)
+            e.setBuffer(attn, offset: 0, index: 3); e.setBuffer(state, offset: 0, index: 4); e.setBuffer(attnh, offset: 0, index: 6); e.setBuffer(treeBuf, offset: 0, index: 7)
             var toff: Int32 = 0
             e.setBytes(&toff, length: 4, index: 5)
             grid(e, Dims.heads, T)
@@ -557,8 +571,8 @@ public final class Engine {
     }
 
     /// Verify pass over T rows (last token + drafts) on the prefill GEMMs, then the MPP lm_head.
-    private func encodeWidePass(_ e: MTLComputeCommandEncoder, T: Int, commit: Bool = true) {
-        if commit { encodeLearnedDraft(e) }
+    private func encodeWidePass(_ e: MTLComputeCommandEncoder, T: Int, treeB: Int = 0, commit: Bool = true) {
+        if commit { encodeLearnedDraft(e, T: T, treeB: treeB) }
         for l in 0..<Dims.layers { encodePrefillLayer2(e, l, n: T, allRows: true) }
         e.setComputePipelineState(pRmsRowsH)
         e.setBuffer(x, offset: 0, index: 0); w(e, TensorID.finalNorm, 1); e.setBuffer(xnh, offset: 0, index: 2); e.setBuffer(state, offset: 0, index: 3)
@@ -616,7 +630,7 @@ public final class Engine {
         for _ in 0..<iters {
             let s = state.contents().assumingMemoryBound(to: Int32.self)
             s[0] = Int32(pos); s[1] = Int32(n); s[2] = 0; s[3] = 0
-            s[4] = Int32(maxContext); s[5] = Int32(maxSteps); s[6] = -5; s[7] = -5
+            s[4] = Int32(maxContext); s[5] = Int32(maxSteps); s[6] = -5; s[7] = -5; s[15] = 0
             let (cb, e) = newEncoder()
             body(e)
             e.endEncoding()
@@ -640,7 +654,7 @@ public final class Engine {
         r.append(("  24x attention", gpuTime(n: n, pos: pos) { e in
             for l in 0..<Dims.layers {
                 e.setComputePipelineState(self.pAttention); e.setBuffer(self.q, offset: 0, index: 0); e.setBuffer(self.kc, offset: kv(l), index: 1)
-                e.setBuffer(self.vc, offset: kv(l), index: 2); e.setBuffer(self.attn, offset: 0, index: 3); e.setBuffer(self.state, offset: 0, index: 4); e.setBuffer(self.attnh, offset: 0, index: 6)
+                e.setBuffer(self.vc, offset: kv(l), index: 2); e.setBuffer(self.attn, offset: 0, index: 3); e.setBuffer(self.state, offset: 0, index: 4); e.setBuffer(self.attnh, offset: 0, index: 6); e.setBuffer(self.treeBuf, offset: 0, index: 7)
                 var toff: Int32 = 0; e.setBytes(&toff, length: 4, index: 5)
                 self.grid(e, Dims.heads, n) } }))
         r.append(("  24x g2 o", gpuTime(n: n, pos: pos) { e in
@@ -850,7 +864,31 @@ public final class Engine {
     /// Rows per verify pass with the learned drafter, and whether those passes run wide.
     public var learnedT = 8
     public var learnedWide = true
+    /// > 0: the learned drafter builds a best-first tree of this many drafts (wide passes of
+    /// learnedTree + 1 rows) instead of a chain.
+    public var learnedTree = 15
     private var passT = 1, passWide = false
+    /// Adaptive speculation: the shape of the next pass follows the accepted drafts per pass of the
+    /// last few committed passes: the configured tree while drafts are accepted, a wide 8-row chain
+    /// when fewer than adaptHi are (unpredictable text). Both are wide passes, whose numerics agree
+    /// for every row count, so the output stays identical to plain decoding with those kernels.
+    /// adaptLo > 0 adds 3-row shader passes below that rate: faster there, but their rounding
+    /// differs, so near-ties can resolve differently (2 of 200 held-out prompts for q8).
+    public var adaptive = ProcessInfo.processInfo.environment["ILL_NO_ADAPT"] == nil
+    public var adaptHi = Double(ProcessInfo.processInfo.environment["ILL_ADAPT_HI"] ?? "") ?? 1.5
+    public var adaptLo = Double(ProcessInfo.processInfo.environment["ILL_ADAPT_LO"] ?? "") ?? 0
+    private var accHist: [(Int, Int)] = []
+    private func nextPassShape(_ s: UnsafeMutablePointer<Int32>) -> (Int, Bool, Int) {
+        let base = (passT, passWide, learnedTree > 0 ? min(learnedTree, 15) : 0)
+        guard adaptive else { return base }
+        let p = Int(ill_volatile_load(s + 10)), a = Int(ill_volatile_load(s + 11))
+        if accHist.last?.0 != p { accHist.append((p, a)) }
+        guard accHist.count >= 3, let first = accHist.dropLast(0).suffix(4).first, p - first.0 >= 2 else { return base }
+        let rate = Double(a - first.1) / Double(p - first.0)
+        if rate >= adaptHi { return base }
+        if adaptLo <= 0 || rate >= adaptLo { return (8, true, 0) }
+        return pSpec[3] != nil ? (3, false, 0) : (8, true, 0)
+    }
     private var learnedActive = false
 
     public func loadLearnedDrafter(path: String) throws {
@@ -904,8 +942,9 @@ public final class Engine {
         // (learnedT rows); others the n-gram drafter on the multi-token shader kernels (specT rows).
         let learnedReady = draftContextReady && useLearned && pILDraft != nil
         draftContextReady = false
-        passT = learnedReady ? learnedT : specT
-        passWide = learnedReady ? learnedWide : wideVerify
+        passT = learnedReady ? (learnedTree > 0 ? min(learnedTree, 15) + 1 : learnedT) : specT
+        passWide = learnedReady ? (learnedWide || learnedTree > 0) : wideVerify
+        ildraft?.treeB = learnedReady ? learnedTree : 0
         specActive = passT > 1 && (passWide ? (passT <= 16 && pG3Lmh[8] != nil) : pSpec[passT] != nil)
             && (learnedReady || ngram.length == NGramTable.slots * 16)
         s[8] = 1                                   // the prefill's lm_head produces one row
@@ -913,7 +952,9 @@ public final class Engine {
         s[10] = 0; s[11] = 0                       // passes, accepted drafts (diagnostics)
         s[13] = noDraft ? 1 : 0                  // pad2: drafting off (reference runs)
         learnedActive = specActive && learnedReady
+        accHist.removeAll(keepingCapacity: true)
         s[14] = learnedActive ? 1 : 0            // pad3: k_ildraft drafts after the commit
+        s[15] = 0                                // pad4: set by k_ildraft for a tree pass
 
         // Prefill gets its own command buffer, committed at once. Decode steps go in small command
         // buffers kept `depth` steps ahead of the CPU: a token written by the GPU only becomes
@@ -952,7 +993,10 @@ public final class Engine {
                 // a speculative pass yields 1...specT tokens; a plain step exactly one
                 while encoded < end {
                     if specActive {
-                        if passWide { encodeWidePass(e, T: passT) } else { encodeSpecPass(e, T: passT) }
+                        if learnedActive {
+                            let (t, w, b) = nextPassShape(s)
+                            if w { encodeWidePass(e, T: t, treeB: b) } else { encodeSpecPass(e, T: t) }
+                        } else if passWide { encodeWidePass(e, T: passT) } else { encodeSpecPass(e, T: passT) }
                     } else { encodeDecodeStep(e, writeLogits: false) }
                     encoded += 1
                 }

@@ -39,7 +39,7 @@ public final class Engine {
     /// Rows per speculative pass (1 = off): the last token plus up to specT-1 n-gram drafts.
     public var specT = 1
     /// Best measured speculation width per format (verify cost vs accepted drafts).
-    public var defaultSpecT: Int { format == .q8 ? 3 : (format == .q4a ? 1 : 2) }
+    public var defaultSpecT: Int { format == .q4a ? 1 : 3 }
     var pG2: [[MTLComputePipelineState]] = []  // [TF-1][qkv, o, gu, down]
     var pG3: [Int: [MTLComputePipelineState]] = [:]  // tokens per tile (8, 16, 32) -> [qkv, o, gu, down]
     public var useGemm3 = ProcessInfo.processInfo.environment["ILL_NO_G3"] == nil

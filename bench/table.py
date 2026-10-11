@@ -3,8 +3,8 @@
   .venv/bin/python -I bench/table.py [results_dir]
 
 Per config: median TTFT (prefix mode), median decode tok/s (fixed mode: 32 tokens for everyone),
-median end-to-end latency for natural stop (prefix), fixed 32 tokens (fixed), whole prompt (full)
-and cold (fresh process per request).
+median end-to-end latency for natural stop (prefix; also the mean), fixed 32 tokens (fixed), whole
+prompt (full) and cold (fresh process per request).
 """
 import csv
 import os
@@ -30,6 +30,11 @@ def med(rows, key):
     return statistics.median(vals) if vals else float("nan")
 
 
+def mean(rows, key):
+    vals = [float(r[key]) for r in rows if r.get(key) not in (None, "", "nan")]
+    return statistics.mean(vals) if vals else float("nan")
+
+
 def fmt(v, unit="ms", prec=1):
     return "-" if v != v else f"{v:.{prec}f} {unit}"
 
@@ -42,6 +47,7 @@ rows = [
     ("decode (32 tokens)", lambda c: fmt(med(load(c, "fixed"), "decode_tok_s"), "tok/s", 0)),
     ("end to end, exactly 32 tokens", lambda c: fmt(med(load(c, "fixed"), "e2e_ms"))),
     ("end to end, natural stop", lambda c: fmt(med(load(c, "prefix"), "e2e_ms"))),
+    ("(mean) end to end, natural stop", lambda c: fmt(mean(load(c, "prefix"), "e2e_ms"))),
     ("end to end, whole prompt (no cache)", lambda c: fmt(med(load(c, "full"), "e2e_ms"))),
     ("cold: fresh process per request", lambda c: fmt(med(load(c, "cold"), "e2e_ms"), "ms", 0)),
 ]
